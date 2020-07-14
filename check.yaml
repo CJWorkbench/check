@@ -1,0 +1,12 @@
+id_name: check
+name: Meedan Check
+category: Add data
+icon: meedan
+description: Display statistics related to your Check Workspace
+loads_data: true
+help_url: modules/add-data/meedan-check
+parameters_version: 1
+parameters:
+- id_name: file
+  name: Meedan-provided .sqlite3 file
+  type: file
