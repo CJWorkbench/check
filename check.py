@@ -134,9 +134,14 @@ status_change_events AS (
     whodunnit AS user_id
   FROM versions
   WHERE event_type = 'update_dynamicannotationfield'
-    AND associated_type = 'ProjectMedia'
-    AND json_extract(object, '$.annotation_type') = 'verification_status'
-  ORDER BY associated_id -- nudge SQLite's query optimizer
+    AND item_type = 'DynamicAnnotation::Field'
+    AND EXISTS (
+        SELECT 1
+        FROM dynamic_annotation_fields daf
+        WHERE daf.id = versions.item_id
+          AND daf.annotation_type = 'verification_status'
+          AND daf.field_name = 'verification_status_status'
+    )
 ),
 first_status_change_events AS (
   SELECT
