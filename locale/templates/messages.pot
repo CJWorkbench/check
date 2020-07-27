@@ -7,12 +7,12 @@ msgid "_spec.description"
 msgstr ""
 
 #. default-message: Please upload a newer file.
-#: check.py:351
+#: check.py:350
 msgid "error.queryError"
 msgstr ""
 
 #. default-message: Please upload a valid .sqlite3.lz4 file.
-#: check.py:360
+#: check.py:356
 msgid "error.invalidFile"
 msgstr ""
 

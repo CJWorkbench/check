@@ -297,7 +297,6 @@ def _column_name_to_query_column(name: str) -> QueryColumn:
 def _rows_to_column(rows: list, column_name: str, column_index: int) -> Tuple[str, pa.Array]:
     query_column = _column_name_to_query_column(column_name)
     values = list(r[column_index] for r in rows)
-    print(repr(values[10:20]))
     return query_column.name, query_column.query_column_type.list_to_pyarrow(values)
 
 
@@ -349,9 +348,6 @@ def render(arrow_table, params, output_path, **kwargs):
                 arrow_table = query_database(db)
             except sqlite3.ProgrammingError:
                 return [i18n.trans("error.queryError", "Please upload a newer file.")]
-
-            for col in arrow_table.itercolumns():
-                print(repr(col[10:]))
 
             with pyarrow.RecordBatchFileWriter(str(output_path), arrow_table.schema) as writer:
                 writer.write_table(arrow_table)
