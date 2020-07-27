@@ -1,0 +1,18 @@
+#. default-message: Meedan Check
+msgid "_spec.name"
+msgstr ""
+
+#. default-message: Display statistics related to your Check Workspace
+msgid "_spec.description"
+msgstr ""
+
+#. default-message: Please upload a newer file.
+#: check.py:351
+msgid "error.queryError"
+msgstr ""
+
+#. default-message: Please upload a valid .sqlite3.lz4 file.
+#: check.py:360
+msgid "error.invalidFile"
+msgstr ""
+
