@@ -36,9 +36,12 @@ REQUESTS_AND_CLAIMS_SQL = r'''
 WITH
 smooch_requests AS (
   SELECT
-    json_extract(daf.value_json, '$.source.originalMessageId') AS whatsapp_message_id,
-    json_extract(daf.value_json, '$.authorId') AS whatsapp_user_id,
-    json_extract(daf.value_json, '$.text') AS whatsapp_text,
+    json_extract(daf.value_json, '$.source.type')
+      || ':'
+      || json_extract(daf.value_json, '$.source.originalMessageId')
+      AS request_message_id,
+    json_extract(daf.value_json, '$.authorId') AS request_user_id,
+    json_extract(daf.value_json, '$.text') AS request_text,
     a.created_at,
     a.id AS annotation_id,
     a.annotated_id AS project_media_id
@@ -198,10 +201,10 @@ last_reports AS (
   WHERE rn_desc = 1
 )
 SELECT
-  smooch_requests.whatsapp_message_id AS "whatsapp_message_id [text]",
-  smooch_requests.whatsapp_user_id AS "whatsapp_user_id [text]",
+  smooch_requests.request_message_id AS "request_message_id [text]",
+  smooch_requests.request_user_id AS "request_user_id [text]",
   smooch_requests.created_at AS requested_at,
-  smooch_requests.whatsapp_text,
+  smooch_requests.request_text,
   project_medias.id AS claim_id,
   last_statuses.status AS claim_status,
   CASE last_statuses.login WHEN 'smooch' THEN NULL ELSE last_statuses.login END AS claim_status_by,
