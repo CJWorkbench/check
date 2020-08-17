@@ -1,14 +1,13 @@
 import contextlib
-import dateutil.parser
 import re
+import sqlite3
 import tempfile
 from typing import ContextManager, List, NamedTuple, Optional, Tuple, Union
 
+import dateutil.parser
 import lz4.frame
-import numpy as np
 import pyarrow as pa
 import pyarrow.ipc
-import sqlite3
 from cjwmodule import i18n
 
 # Sqlite3 doesn't have a "recordset" concept, and it won't expose the decltypes
@@ -32,22 +31,37 @@ from cjwmodule import i18n
 # * Column name ending in '_id': id
 # * Column name ending in '_at': timestamp
 
-REQUESTS_AND_CLAIMS_SQL = r'''
+SUBMISSIONS_AND_CLAIMS_SQL = r"""
 WITH
 smooch_requests AS (
   SELECT
     json_extract(daf.value_json, '$.source.type')
       || ':'
       || json_extract(daf.value_json, '$.source.originalMessageId')
-      AS request_message_id,
-    json_extract(daf.value_json, '$.authorId') AS request_user_id,
+      AS submission_id,
+    json_extract(daf.value_json, '$.authorId') AS submitted_by,
+    a.created_at AS submitted_at,
     json_extract(daf.value_json, '$.text') AS request_text,
-    a.created_at,
-    a.id AS annotation_id,
     a.annotated_id AS project_media_id
   FROM dynamic_annotation_fields daf
   INNER JOIN annotations a ON a.id = daf.annotation_id
   WHERE daf.field_name = 'smooch_data'
+),
+web_requests AS (
+  SELECT
+    'check:' || project_medias.id AS submission_id,
+    'check:' || users.login as submitted_by,
+    project_medias.created_at AS submitted_at,
+    NULL AS request_text,
+    project_medias.id AS project_media_id
+  FROM project_medias
+  LEFT JOIN users ON project_medias.user_id = users.id
+  WHERE project_medias.id NOT IN (SELECT DISTINCT project_media_id FROM smooch_requests)
+),
+all_requests AS (
+  SELECT * FROM smooch_requests
+  UNION
+  SELECT * FROM web_requests
 ),
 statuses AS (
   SELECT
@@ -201,10 +215,10 @@ last_reports AS (
   WHERE rn_desc = 1
 )
 SELECT
-  smooch_requests.request_message_id AS "request_message_id [text]",
-  smooch_requests.request_user_id AS "request_user_id [text]",
-  smooch_requests.created_at AS requested_at,
-  smooch_requests.request_text,
+  all_requests.submission_id AS "submission_id [text]",
+  all_requests.submitted_by,
+  all_requests.submitted_at,
+  all_requests.request_text,
   project_medias.id AS claim_id,
   last_statuses.status AS claim_status,
   CASE last_statuses.login WHEN 'smooch' THEN NULL ELSE last_statuses.login END AS claim_status_by,
@@ -229,8 +243,8 @@ SELECT
   project_medias.archived AS "claim_archived [integer]",
   first_archived_events.created_at AS claim_first_archived_at,
   first_archived_events.login AS claim_first_archived_by
-FROM smooch_requests
-INNER JOIN project_medias ON project_medias.id = smooch_requests.project_media_id
+FROM all_requests
+INNER JOIN project_medias ON project_medias.id = all_requests.project_media_id
 INNER JOIN medias ON project_medias.media_id = medias.id
 INNER JOIN teams ON teams.id = project_medias.team_id
 LEFT JOIN project_media_list1s ON project_media_list1s.project_media_id = project_medias.id
@@ -243,8 +257,8 @@ LEFT JOIN media_metadatas ON media_metadatas.media_id = medias.id
 LEFT JOIN last_reports ON last_reports.project_media_id = project_medias.id
 LEFT JOIN first_publish_events ON first_publish_events.project_media_id = project_medias.id
 LEFT JOIN first_archived_events ON first_archived_events.project_media_id = project_medias.id
-ORDER BY smooch_requests.created_at DESC, project_medias.id
-'''
+ORDER BY all_requests.submitted_at DESC, project_medias.id
+"""
 
 
 def validate_database(db: sqlite3.Connection) -> None:
@@ -257,7 +271,8 @@ class IntegerType:
         return pa.array(values, pa.int32())  # TODO dynamic width?
 
 
-class IdType(IntegerType): pass
+class IdType(IntegerType):
+    pass
 
 
 class TextType:
@@ -269,7 +284,7 @@ class TimestampType:
     def list_to_pyarrow(self, values: List[Optional[str]]) -> pa.Array:
         return pa.array(
             [(dateutil.parser.isoparse(v) if v else None) for v in values],
-            pa.timestamp('ns')
+            pa.timestamp("ns"),
         )
 
 
@@ -282,27 +297,29 @@ class QueryColumn(NamedTuple):
 
 
 def _column_name_to_query_column(name: str) -> QueryColumn:
-    match = re.match(r'(.+) \[(id|integer|text|timestamp)\]', name)
+    match = re.match(r"(.+) \[(id|integer|text|timestamp)\]", name)
     if match:
         name = match.group(1)
-        if match.group(2) == 'id':
+        if match.group(2) == "id":
             type = IdType()
-        elif match.group(2) == 'text':
+        elif match.group(2) == "text":
             type = TextType()
-        elif match.group(2) == 'integer':
+        elif match.group(2) == "integer":
             type = IntegerType()
-        elif match.group(2) == 'timestamp':
+        elif match.group(2) == "timestamp":
             type = TimestampType()
         return QueryColumn(name, type)
-    elif name.endswith('_id'):
+    elif name.endswith("_id"):
         return QueryColumn(name, IdType())
-    elif name.endswith('_at'):
+    elif name.endswith("_at"):
         return QueryColumn(name, TimestampType())
     else:
         return QueryColumn(name, TextType())
 
 
-def _rows_to_column(rows: list, column_name: str, column_index: int) -> Tuple[str, pa.Array]:
+def _rows_to_column(
+    rows: list, column_name: str, column_index: int
+) -> Tuple[str, pa.Array]:
     query_column = _column_name_to_query_column(column_name)
     values = list(r[column_index] for r in rows)
     return query_column.name, query_column.query_column_type.list_to_pyarrow(values)
@@ -319,7 +336,7 @@ def _cursor_to_table(cursor: sqlite3.Cursor) -> pa.Table:
 def query_database(db: sqlite3.Connection) -> pa.Table:
     """Return a table; raise sqlite3.ProgrammingError if queries fail."""
     cursor = db.cursor()
-    cursor.execute(REQUESTS_AND_CLAIMS_SQL)
+    cursor.execute(SUBMISSIONS_AND_CLAIMS_SQL)
     return _cursor_to_table(cursor)
 
 
@@ -357,10 +374,12 @@ def render(arrow_table, params, output_path, **kwargs):
             except sqlite3.ProgrammingError:
                 return [i18n.trans("error.queryError", "Please upload a newer file.")]
 
-            with pyarrow.RecordBatchFileWriter(str(output_path), arrow_table.schema) as writer:
+            with pyarrow.RecordBatchFileWriter(
+                str(output_path), arrow_table.schema
+            ) as writer:
                 writer.write_table(arrow_table)
             return []
     except (InvalidLz4File, sqlite3.DatabaseError):
-        return [i18n.trans(
-            "error.invalidFile", "Please upload a valid .sqlite3.lz4 file."
-        )]
+        return [
+            i18n.trans("error.invalidFile", "Please upload a valid .sqlite3.lz4 file.")
+        ]

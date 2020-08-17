@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PROJECT VERSION\n"
 "Report-Msgid-Bugs-To: EMAIL@ADDRESS\n"
-"POT-Creation-Date: 2020-07-28 21:01+0000\n"
+"POT-Creation-Date: 2020-08-17 20:01+0000\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language: en\n"
@@ -25,11 +25,11 @@ msgstr "Meedan Check"
 msgid "_spec.description"
 msgstr "Display statistics related to your Check Workspace"
 
-#: check.py:358
+#: check.py:375
 msgid "error.queryError"
 msgstr "Please upload a newer file."
 
-#: check.py:364
+#: check.py:384
 msgid "error.invalidFile"
 msgstr "Please upload a valid .sqlite3.lz4 file."
 
