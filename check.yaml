@@ -9,3 +9,9 @@ parameters_version: 1
 parameters:
 - id_name: file
   type: file
+- id_name: query_slug
+  name: Table
+  type: menu
+  options:
+  - { value: submissions_and_claims, label: Submissions and Claims }
+  - { value: tasks, label: Tasks }

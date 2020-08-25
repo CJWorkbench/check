@@ -6,13 +6,25 @@ msgstr ""
 msgid "_spec.description"
 msgstr ""
 
+#. default-message: Table
+msgid "_spec.parameters.query_slug.name"
+msgstr ""
+
+#. default-message: Submissions and Claims
+msgid "_spec.parameters.query_slug.options.submissions_and_claims.label"
+msgstr ""
+
+#. default-message: Tasks
+msgid "_spec.parameters.query_slug.options.tasks.label"
+msgstr ""
+
 #. default-message: Please upload a newer file.
-#: check.py:375
+#: check.py:506
 msgid "error.queryError"
 msgstr ""
 
 #. default-message: Please upload a valid .sqlite3.lz4 file.
-#: check.py:384
+#: check.py:515
 msgid "error.invalidFile"
 msgstr ""
 

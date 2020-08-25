@@ -2,7 +2,7 @@ import contextlib
 import re
 import sqlite3
 import tempfile
-from typing import ContextManager, List, NamedTuple, Optional, Tuple, Union
+from typing import Callable, ContextManager, List, NamedTuple, Optional, Tuple, Union
 
 import dateutil.parser
 import lz4.frame
@@ -260,6 +260,53 @@ LEFT JOIN first_archived_events ON first_archived_events.project_media_id = proj
 ORDER BY all_requests.submitted_at DESC, project_medias.id
 """
 
+TASKS_SQL = r"""
+CREATE INDEX annotations__annotated_id ON annotations (annotated_id);
+CREATE INDEX dynamic_annotation_fields__annotation_id ON dynamic_annotation_fields (annotation_id);
+SELECT
+  annotations_tasks.id AS task_id,
+  annotations_tasks.annotated_id AS claim_id,
+  annotations_tasks.created_at AS created_at,
+  -- Parse YAML: half using user-defined function (UDF), half with LIKE.
+  -- LIKE is wrong but fast. We know of no cases where "fieldset" will
+  -- mis-parse.
+  -- UDF is correct but slow: some tasks have newlines, so we know of cases
+  -- where string manipulation would mis-parse.
+  -- Our UDF is carefully optimized, and it's still slow. TODO convince our
+  -- database designers to use DB fields instead of YAML.
+  CASE
+    WHEN annotations_tasks.data LIKE ('%' || CHAR(0xa) || 'fieldset: metadata' || CHAR(0xa) || '%') THEN 'metadata'
+    ELSE 'task'
+  END AS task_or_metadata,
+  task_yaml_to_label(annotations_tasks.data) AS label,
+  CASE dynamic_annotation_fields.value
+    WHEN '' THEN dynamic_annotation_fields.value_json
+    ELSE dynamic_annotation_fields.value
+  END AS answer,
+  users.login AS answered_by,
+  annotations_responses.created_at AS answered_at
+FROM annotations annotations_tasks
+LEFT JOIN annotations annotations_responses
+       ON annotations_responses.annotated_type = 'Task'
+      AND annotations_responses.annotated_id = annotations_tasks.id
+      AND annotations_responses.annotation_type LIKE 'task_response_%'
+LEFT JOIN dynamic_annotation_fields
+       ON dynamic_annotation_fields.annotation_id = annotations_responses.id
+LEFT JOIN users
+       ON annotations_responses.annotator_type = 'User'
+      AND annotations_responses.annotator_id = users.id
+WHERE annotations_tasks.annotated_type = 'ProjectMedia'
+  AND annotations_tasks.annotation_type = 'task'
+ORDER BY
+  annotations_tasks.annotated_id DESC,
+  -- ... all ordered by label
+  CASE
+    WHEN annotations_tasks.data LIKE ('%' || CHAR(0xa) || 'fieldset: metadata' || CHAR(0xa) || '%') THEN 'metadata'
+    ELSE 'task'
+  END,
+  task_yaml_to_label(annotations_tasks.data)
+"""
+
 
 def validate_database(db: sqlite3.Connection) -> None:
     """Raise sqlite3.DatabaseError if `db` does not point to a database."""
@@ -333,11 +380,95 @@ def _cursor_to_table(cursor: sqlite3.Cursor) -> pa.Table:
     )
 
 
-def query_database(db: sqlite3.Connection) -> pa.Table:
+def _query_submissions_and_claims(db: sqlite3.Connection) -> pa.Table:
     """Return a table; raise sqlite3.ProgrammingError if queries fail."""
     cursor = db.cursor()
     cursor.execute(SUBMISSIONS_AND_CLAIMS_SQL)
     return _cursor_to_table(cursor)
+
+
+def build_task_yaml_to_label() -> Callable[[str], str]:
+    """Build a task_yaml_to_label() function, very specific to Meedan.
+
+    It would be nicer if `label` were a database field and we could delete all
+    this.
+    """
+    from yaml import reader, scanner, tokens, YAMLError
+
+    class Scanner(reader.Reader, scanner.Scanner):
+        def __init__(self, stream):
+            reader.Reader.__init__(self, stream)
+            scanner.Scanner.__init__(self)
+
+    def task_yaml_to_label(task_yaml: str) -> Optional[str]:
+        scanner = Scanner(task_yaml)
+        # Heavily optimized
+        nesting = 0
+        # closeness_to_value meanings:
+        # 0 = we're nowhere interesting
+        # 1 = we saw a KeyToken (with nesting=1 [outer mapping])
+        # 2 = ... and then a ScalarToken(value='label')
+        # 3 = ... and then a ValueToken
+        # ... so if the next token is a ScalarToken, we found our label!
+        # Otherwise, reset closeness_to_value to 0 and keep scanning.
+        closeness_to_value = 0
+        try:
+            while True:
+                token = scanner.get_token()
+                if token is None:
+                    return None
+                elif (
+                    token.id is tokens.BlockMappingStartToken.id
+                    or token.id is tokens.BlockSequenceStartToken.id
+                    or token.id is tokens.FlowMappingStartToken.id
+                    or token.id is tokens.FlowSequenceStartToken.id
+                ):
+                    nesting += 1
+                    closeness_to_value = 0
+                elif (
+                    token.id is tokens.BlockEndToken.id
+                    or token.id is tokens.FlowMappingEndToken.id
+                    or token.id is tokens.FlowSequenceEndToken.id
+                ):
+                    nesting -= 1
+                    closeness_to_value = 0
+                elif nesting == 1:
+                    if closeness_to_value == 0 and token.id is tokens.KeyToken.id:
+                        closeness_to_value = 1
+                    elif (
+                        closeness_to_value == 1
+                        and token.id is tokens.ScalarToken.id
+                        and token.value == "label"
+                    ):
+                        closeness_to_value = 2
+                    elif closeness_to_value == 2 and token.id is tokens.ValueToken.id:
+                        closeness_to_value = 3
+                    elif closeness_to_value == 3 and token.id is tokens.ScalarToken.id:
+                        return str(token.value)
+                    else:
+                        closeness_to_value = 0
+        except YAMLError:
+            return None
+
+    return task_yaml_to_label
+
+
+def _query_tasks(db: sqlite3.Connection) -> pa.Table:
+    db.create_function("task_yaml_to_label", 1, build_task_yaml_to_label())
+    cursor = db.cursor()
+    for sql in TASKS_SQL.split(";\n"):
+        # This SQL creates indexes to speed up the full query. The final
+        # query is the one _cursor_to_table() will iterate over.
+        cursor.execute(sql)
+    return _cursor_to_table(cursor)
+
+
+def query_database(db: sqlite3.Connection, query_slug: str) -> pa.Table:
+    """Return a table; raise sqlite3.ProgrammingError if queries fail."""
+    if query_slug == "tasks":
+        return _query_tasks(db)
+    else:
+        return _query_submissions_and_claims(db)
 
 
 class InvalidLz4File(Exception):
@@ -370,7 +501,7 @@ def render(arrow_table, params, output_path, **kwargs):
             validate_database(db)  # raises sqlite3.DatabaseError
 
             try:
-                arrow_table = query_database(db)
+                arrow_table = query_database(db, params["query_slug"])
             except sqlite3.ProgrammingError:
                 return [i18n.trans("error.queryError", "Please upload a newer file.")]
 
@@ -379,7 +510,27 @@ def render(arrow_table, params, output_path, **kwargs):
             ) as writer:
                 writer.write_table(arrow_table)
             return []
-    except (InvalidLz4File, sqlite3.DatabaseError):
+    except (InvalidLz4File, sqlite3.DatabaseError) as err:
         return [
             i18n.trans("error.invalidFile", "Please upload a valid .sqlite3.lz4 file.")
         ]
+
+
+def _migrate_params_v0_to_v1(params):
+    """v0: always `submissions_and_claims` query. v1: slugs.
+
+    Valid slugs in v1:
+
+    * submissions_and_claims
+    * tasks [NOT FINALIZED]
+    """
+    return {
+        **params,
+        "query_slug": "submissions_and_claims",
+    }
+
+
+def migrate_params(params):
+    if "query_slug" not in params:
+        params = _migrate_params_v0_to_v1(params)
+    return params
