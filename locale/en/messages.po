@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PROJECT VERSION\n"
 "Report-Msgid-Bugs-To: EMAIL@ADDRESS\n"
-"POT-Creation-Date: 2020-08-25 14:50+0000\n"
+"POT-Creation-Date: 2020-08-27 17:53+0000\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language: en\n"
@@ -32,7 +32,7 @@ msgid "_spec.parameters.query_slug.options.submissions_and_claims.label"
 msgstr "Submissions and Claims"
 
 msgid "_spec.parameters.query_slug.options.tasks.label"
-msgstr "Tasks"
+msgstr "Tasks and Metadata"
 
 #: check.py:506
 msgid "error.queryError"

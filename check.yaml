@@ -14,4 +14,4 @@ parameters:
   type: menu
   options:
   - { value: submissions_and_claims, label: Submissions and Claims }
-  - { value: tasks, label: Tasks }
+  - { value: tasks, label: Tasks and Metadata }

@@ -14,7 +14,7 @@ msgstr ""
 msgid "_spec.parameters.query_slug.options.submissions_and_claims.label"
 msgstr ""
 
-#. default-message: Tasks
+#. default-message: Tasks and Metadata
 msgid "_spec.parameters.query_slug.options.tasks.label"
 msgstr ""
 
