@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PROJECT VERSION\n"
 "Report-Msgid-Bugs-To: EMAIL@ADDRESS\n"
-"POT-Creation-Date: 2020-08-25 14:50+0000\n"
+"POT-Creation-Date: 2020-09-24 15:12+0000\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language: el\n"
@@ -34,11 +34,11 @@ msgstr ""
 msgid "_spec.parameters.query_slug.options.tasks.label"
 msgstr ""
 
-#: check.py:506
+#: check.py:520
 msgid "error.queryError"
 msgstr ""
 
-#: check.py:515
+#: check.py:529
 msgid "error.invalidFile"
 msgstr ""
 

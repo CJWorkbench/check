@@ -33,18 +33,32 @@ from cjwmodule import i18n
 
 SUBMISSIONS_AND_CLAIMS_SQL = r"""
 WITH
+smooch_users AS (
+  SELECT
+    DISTINCT -- https://www.sqlite.org/optoverview.html#flattening
+    json_extract(daf.value_json, '$.id') AS id,
+    json_extract(daf.value_json, '$.raw.clients[0].platform') AS platform,
+    COALESCE(
+        json_extract(daf.value_json, '$.raw.clients[0].externalId'), -- https://docs.smooch.io/rest/#client-schema
+        json_extract(daf.value_json, '$.raw.clients[0].displayName'), -- WhatsApp
+        json_extract(daf.value_json, '$.raw.clients[0].avatarUrl') -- fallback?
+    ) AS user_id_on_platform -- only tested on WhatsApp
+  FROM dynamic_annotation_fields daf
+  WHERE daf.field_name = 'smooch_user_data'
+),
 smooch_requests AS (
   SELECT
     json_extract(daf.value_json, '$.source.type')
       || ':'
       || json_extract(daf.value_json, '$.source.originalMessageId')
       AS submission_id,
-    json_extract(daf.value_json, '$.authorId') AS submitted_by,
-    a.created_at AS submitted_at,
+    smooch_users.platform || ':' || smooch_users.user_id_on_platform AS submitted_by,
+    annotations.created_at AS submitted_at,
     json_extract(daf.value_json, '$.text') AS request_text,
-    a.annotated_id AS project_media_id
+    annotations.annotated_id AS project_media_id
   FROM dynamic_annotation_fields daf
-  INNER JOIN annotations a ON a.id = daf.annotation_id
+  INNER JOIN annotations ON annotations.id = daf.annotation_id
+  LEFT JOIN smooch_users ON smooch_users.id = json_extract(daf.value_json, '$.authorId')
   WHERE daf.field_name = 'smooch_data'
 ),
 web_requests AS (
