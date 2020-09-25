@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PROJECT VERSION\n"
 "Report-Msgid-Bugs-To: EMAIL@ADDRESS\n"
-"POT-Creation-Date: 2020-09-24 15:12+0000\n"
+"POT-Creation-Date: 2020-09-25 13:52+0000\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language: en\n"
@@ -34,11 +34,17 @@ msgstr "Submissions and Claims"
 msgid "_spec.parameters.query_slug.options.tasks.label"
 msgstr "Tasks and Metadata"
 
-#: check.py:520
+msgid "_spec.parameters.query_slug.options.conversations.label"
+msgstr "Tipline Conversations"
+
+msgid "_spec.parameters.query_slug.options.items.label"
+msgstr "Items"
+
+#: check.py:801
 msgid "error.queryError"
 msgstr "Please upload a newer file."
 
-#: check.py:529
+#: check.py:810
 msgid "error.invalidFile"
 msgstr "Please upload a valid .sqlite3.lz4 file."
 

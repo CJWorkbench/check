@@ -6,7 +6,7 @@ SQL Queries are constants, and they don't take parameters. Given a certain
 
 ```
 lz4 -d check-teamslug.sqlite3.lz4  # to create check-teamslug.sqlite3
-python -c 'import check; print(check.SUBMISSIONS_AND_CLAIMS_SQL)' \
+python -c 'import check; print(check.ITEMS_SQL)' \
    | sqlite3 check-teamslug.sqlite3 \
    -cmd '.eqp on'
 ```

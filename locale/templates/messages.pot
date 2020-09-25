@@ -18,13 +18,21 @@ msgstr ""
 msgid "_spec.parameters.query_slug.options.tasks.label"
 msgstr ""
 
+#. default-message: Tipline Conversations
+msgid "_spec.parameters.query_slug.options.conversations.label"
+msgstr ""
+
+#. default-message: Items
+msgid "_spec.parameters.query_slug.options.items.label"
+msgstr ""
+
 #. default-message: Please upload a newer file.
-#: check.py:520
+#: check.py:801
 msgid "error.queryError"
 msgstr ""
 
 #. default-message: Please upload a valid .sqlite3.lz4 file.
-#: check.py:529
+#: check.py:810
 msgid "error.invalidFile"
 msgstr ""
 

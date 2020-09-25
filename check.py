@@ -274,12 +274,206 @@ LEFT JOIN first_archived_events ON first_archived_events.project_media_id = proj
 ORDER BY all_requests.submitted_at DESC, project_medias.id
 """
 
+ITEMS_SQL = r"""
+WITH
+statuses AS (
+  SELECT
+    ROW_NUMBER() OVER (PARTITION BY a.annotated_id ORDER BY a.id DESC) AS rn_desc,
+    a.annotated_id AS project_media_id,
+    u.login AS login,
+    daf.value -- JSON-encoded String value
+  FROM dynamic_annotation_fields daf
+  INNER JOIN annotations a ON a.id = daf.annotation_id
+  LEFT JOIN users u ON a.annotator_id = u.id
+  WHERE a.annotation_type = 'verification_status'
+    AND a.annotated_type = 'ProjectMedia'
+    AND daf.field_name = 'verification_status_status'
+),
+last_statuses AS (
+  SELECT
+    project_media_id,
+    login,
+    json_extract(value, '$') AS status -- it's a JSON-encoded String
+  FROM statuses
+  WHERE rn_desc = 1
+),
+project_media_list1s AS (
+  SELECT
+    project_media_projects.project_media_id,
+    MIN(projects.title) AS list1
+  FROM project_media_projects
+  INNER JOIN projects ON project_media_projects.project_id = projects.id
+  GROUP BY project_media_projects.project_media_id
+),
+parent_relationships AS (
+  SELECT
+    relationships.target_id AS child_project_media_id,
+    relationships.source_id AS parent_project_media_id,
+    relationships.created_at,
+    users.login
+  FROM relationships
+  LEFT JOIN users ON relationships.user_id = users.id
+  WHERE relationships.relationship_type = '---' || CHAR(0xa) || ':source: parent' || CHAR(0xa) || ':target: child' || CHAR(0xa)
+),
+archived_events AS (
+  SELECT
+    ROW_NUMBER() OVER(PARTITION BY associated_id ORDER BY id ASC) AS rn,
+    associated_id AS project_media_id,
+    created_at,
+    whodunnit AS user_id
+  FROM versions
+  WHERE event_type = 'update_projectmedia'
+    AND associated_type = 'ProjectMedia'
+    AND json_extract(object_changes, '$.archived') = '[false,true]'
+),
+first_archived_events AS (
+  SELECT
+    archived_events.project_media_id,
+    archived_events.created_at,
+    users.login
+  FROM archived_events
+  LEFT JOIN users ON archived_events.user_id = users.id
+  WHERE archived_events.rn = 1
+),
+publish_related_events AS ( -- events that publish a report, edit a published report, or unpublish a report
+  SELECT
+    ROW_NUMBER() OVER(PARTITION BY associated_id ORDER BY id ASC) AS rn,
+    associated_id AS project_media_id,
+    created_at,
+    whodunnit AS user_id
+  FROM versions
+  WHERE event_type IN ('create_dynamic', 'update_dynamic')
+    AND associated_type = 'ProjectMedia'
+    AND object_changes LIKE '%\nstate: published\n%' -- JSON-encoded YAML value
+),
+first_publish_events AS (
+  SELECT
+    publish_related_events.project_media_id,
+    publish_related_events.created_at,
+    users.login
+  FROM publish_related_events
+  LEFT JOIN users ON publish_related_events.user_id = users.id
+  WHERE publish_related_events.rn = 1
+),
+status_change_events AS (
+  SELECT
+    ROW_NUMBER() OVER(PARTITION BY associated_id ORDER BY id ASC) AS rn,
+    ROW_NUMBER() OVER(PARTITION BY associated_id ORDER BY id DESC) AS rn_desc,
+    associated_id AS project_media_id,
+    created_at,
+    whodunnit AS user_id
+  FROM versions
+  WHERE event_type = 'update_dynamicannotationfield'
+    AND item_type = 'DynamicAnnotation::Field'
+    AND EXISTS (
+        SELECT 1
+        FROM dynamic_annotation_fields daf
+        WHERE daf.id = versions.item_id
+          AND daf.annotation_type = 'verification_status'
+          AND daf.field_name = 'verification_status_status'
+    )
+),
+first_status_change_events AS (
+  SELECT
+    status_change_events.project_media_id,
+    status_change_events.created_at,
+    users.login
+  FROM status_change_events
+  LEFT JOIN users ON status_change_events.user_id = users.id
+  WHERE status_change_events.rn = 1
+),
+last_status_change_events AS (
+  SELECT
+    status_change_events.project_media_id,
+    status_change_events.created_at,
+    users.login
+  FROM status_change_events
+  LEFT JOIN users ON status_change_events.user_id = users.id
+  WHERE status_change_events.rn_desc = 1
+),
+media_metadatas AS (
+  SELECT
+    annotations.annotated_id AS media_id,
+    dynamic_annotation_fields.value_json AS metadata_json
+  FROM dynamic_annotation_fields
+  INNER JOIN annotations ON dynamic_annotation_fields.annotation_id = annotations.id
+  WHERE annotations.annotated_type = 'Media'
+    AND annotations.annotation_type = 'metadata'
+    AND dynamic_annotation_fields.field_name = 'metadata_value'
+),
+project_media_metadatas AS (
+  SELECT
+    annotations.annotated_id AS project_media_id,
+    dynamic_annotation_fields.value_json AS metadata_json
+  FROM dynamic_annotation_fields
+  INNER JOIN annotations ON dynamic_annotation_fields.annotation_id = annotations.id
+  WHERE annotations.annotated_type = 'ProjectMedia'
+    AND annotations.annotation_type = 'metadata'
+    AND dynamic_annotation_fields.field_name = 'metadata_value'
+),
+reports AS (
+  SELECT
+    ROW_NUMBER() OVER(PARTITION BY annotated_id ORDER BY id DESC) AS rn_desc,
+    annotated_id AS project_media_id,
+    CASE WHEN annotations.data LIKE ('%' || CHAR(0xa) || 'state: published' || CHAR(0xa) || '%') THEN 'published' else 'paused' END AS status
+  FROM annotations
+  WHERE annotated_type = 'ProjectMedia'
+    AND annotation_type = 'report_design'
+),
+last_reports AS (
+  SELECT
+    project_media_id,
+    status
+  FROM reports
+  WHERE rn_desc = 1
+)
+SELECT
+  project_medias.id AS item_id,
+  last_statuses.status AS item_status,
+  CASE last_statuses.login WHEN 'smooch' THEN NULL ELSE last_statuses.login END AS item_status_by,
+  project_media_list1s.list1 AS item_list1,
+  COALESCE(
+    json_extract(project_media_metadatas.metadata_json, '$.title'),
+    json_extract(media_metadatas.metadata_json, '$.title')
+  ) AS item_title,
+  CASE medias.type WHEN 'Claim' THEN 'Text' ELSE medias.type END AS item_type,
+  medias.url AS item_url,
+  'https://checkmedia.org/' || teams.slug || '/media/' || project_medias.id AS check_url,
+  parent_relationships.parent_project_media_id AS primary_item_id,
+  parent_relationships.created_at AS primary_item_linked_at,
+  parent_relationships.login AS primary_item_linked_by,
+  first_status_change_events.created_at AS first_item_status_changed_at,
+  first_status_change_events.login AS first_item_status_changed_by,
+  last_status_change_events.created_at AS last_item_status_changed_at,
+  last_status_change_events.login AS last_item_status_changed_by,
+  last_reports.status AS item_report_status,
+  first_publish_events.created_at AS item_report_first_published_at,
+  first_publish_events.login AS item_report_first_published_by,
+  project_medias.archived AS "item_archived [integer]",
+  first_archived_events.created_at AS item_first_archived_at,
+  first_archived_events.login AS item_first_archived_by
+FROM project_medias
+INNER JOIN medias ON project_medias.media_id = medias.id
+INNER JOIN teams ON teams.id = project_medias.team_id
+LEFT JOIN project_media_list1s ON project_media_list1s.project_media_id = project_medias.id
+LEFT JOIN last_statuses ON last_statuses.project_media_id = project_medias.id
+LEFT JOIN parent_relationships ON parent_relationships.child_project_media_id = project_medias.id
+LEFT JOIN first_status_change_events ON first_status_change_events.project_media_id = project_medias.id
+LEFT JOIN last_status_change_events ON last_status_change_events.project_media_id = project_medias.id
+LEFT JOIN project_media_metadatas ON project_media_metadatas.project_media_id = project_medias.id
+LEFT JOIN media_metadatas ON media_metadatas.media_id = medias.id
+LEFT JOIN last_reports ON last_reports.project_media_id = project_medias.id
+LEFT JOIN first_publish_events ON first_publish_events.project_media_id = project_medias.id
+LEFT JOIN first_archived_events ON first_archived_events.project_media_id = project_medias.id
+ORDER BY project_medias.id DESC
+"""
+
 TASKS_SQL = r"""
 CREATE INDEX annotations__annotated_id ON annotations (annotated_id);
 CREATE INDEX dynamic_annotation_fields__annotation_id ON dynamic_annotation_fields (annotation_id);
 SELECT
   annotations_tasks.id AS task_id,
-  annotations_tasks.annotated_id AS claim_id,
+  annotations_tasks.annotated_id AS item_id,
   annotations_tasks.created_at AS created_at,
   -- Parse YAML: half using user-defined function (UDF), half with LIKE.
   -- LIKE is wrong but fast. We know of no cases where "fieldset" will
@@ -319,6 +513,53 @@ ORDER BY
     ELSE 'task'
   END,
   task_yaml_to_label(annotations_tasks.data)
+"""
+
+CONVERSATIONS_SQL = r"""
+WITH
+smooch_users AS (
+  SELECT
+    DISTINCT -- https://www.sqlite.org/optoverview.html#flattening
+    json_extract(daf.value_json, '$.id') AS id,
+    json_extract(daf.value_json, '$.raw.clients[0].platform') AS platform,
+    COALESCE(
+        json_extract(daf.value_json, '$.raw.clients[0].externalId'), -- https://docs.smooch.io/rest/#client-schema
+        json_extract(daf.value_json, '$.raw.clients[0].displayName'), -- WhatsApp
+        json_extract(daf.value_json, '$.raw.clients[0].avatarUrl') -- fallback?
+    ) AS user_id_on_platform, -- only tested on WhatsApp
+    json_extract(slack_channel_urls.value, '$') AS slack_channel_url
+  FROM dynamic_annotation_fields daf
+  INNER JOIN annotations ON daf.annotation_id = annotations.id
+  LEFT JOIN dynamic_annotation_fields slack_channel_urls
+         ON slack_channel_urls.annotation_id = annotations.id
+        AND slack_channel_urls.field_name = 'smooch_user_slack_channel_url'
+  WHERE daf.field_name = 'smooch_user_data'
+)
+SELECT
+  json_extract(daf.value_json, '$.source.type')
+    || ':'
+    || json_extract(daf.value_json, '$.source.originalMessageId')
+    AS "conversation_id [text]",
+  smooch_users.platform || ':' || smooch_users.user_id_on_platform AS user,
+  annotations.created_at AS created_at,
+  CASE
+    WHEN annotations.annotated_type = 'ProjectMedia' THEN CASE
+      WHEN json_extract(daf.value_json, '$.project_id') IS NOT NULL THEN 'submission'
+      ELSE 'resource'
+    END
+    ELSE NULL
+  END AS outcome,
+  CASE
+    WHEN annotations.annotated_type = 'ProjectMedia' THEN annotations.annotated_id
+    ELSE NULL
+  END AS item_id,
+  json_extract(daf.value_json, '$.text') AS user_messages, -- delimited by \u2063
+  smooch_users.slack_channel_url AS slack_channel_url
+FROM dynamic_annotation_fields daf
+INNER JOIN annotations ON annotations.id = daf.annotation_id
+LEFT JOIN smooch_users ON smooch_users.id = json_extract(daf.value_json, '$.authorId')
+WHERE daf.field_name = 'smooch_data'
+ORDER BY daf.created_at DESC, daf.id DESC
 """
 
 
@@ -401,6 +642,42 @@ def _query_submissions_and_claims(db: sqlite3.Connection) -> pa.Table:
     return _cursor_to_table(cursor)
 
 
+def _query_items(db: sqlite3.Connection) -> pa.Table:
+    """Return a table; raise sqlite3.ProgrammingError if queries fail."""
+    cursor = db.cursor()
+    cursor.execute(ITEMS_SQL)
+    return _cursor_to_table(cursor)
+
+
+def _query_conversations(db: sqlite3.Connection) -> pa.Table:
+    cursor = db.cursor()
+    cursor.execute(CONVERSATIONS_SQL)
+    table1 = _cursor_to_table(cursor)
+
+    # Extract messages in Python, not SQLite UDF, so it's easy to debug the
+    # query as described in the README.
+    last_message_pattern = re.compile("(?:.*\n\u2063)*(.*)")
+
+    def extract_last_message(messages_str: str) -> str:
+        r"""Omit all but the final message from a conversation.
+
+        Check doesn't use a JSON Array to delimit separate message texts.
+        Instead, it delimits them by '\n\u2063'.
+        """
+        if messages_str is None:
+            return None
+
+        return last_message_pattern.match(messages_str).group(1)
+
+    user_messages_list = table1["user_messages"].to_pylist()
+    last_user_message_list = [extract_last_message(m) for m in user_messages_list]
+    return table1.add_column(
+        table1.column_names.index("user_messages") + 1,
+        "last_user_message",
+        pa.array(last_user_message_list, pa.utf8()),
+    )
+
+
 def build_task_yaml_to_label() -> Callable[[str], str]:
     """Build a task_yaml_to_label() function, very specific to Meedan.
 
@@ -481,6 +758,10 @@ def query_database(db: sqlite3.Connection, query_slug: str) -> pa.Table:
     """Return a table; raise sqlite3.ProgrammingError if queries fail."""
     if query_slug == "tasks":
         return _query_tasks(db)
+    elif query_slug == "conversations":
+        return _query_conversations(db)
+    elif query_slug == "items":
+        return _query_items(db)
     else:
         return _query_submissions_and_claims(db)
 
@@ -537,6 +818,7 @@ def _migrate_params_v0_to_v1(params):
 
     * submissions_and_claims
     * tasks [NOT FINALIZED]
+    * conversations
     """
     return {
         **params,
