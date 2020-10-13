@@ -1,4 +1,6 @@
 import contextlib
+import datetime
+import json
 import re
 import sqlite3
 import tempfile
@@ -473,10 +475,13 @@ SELECT
     ELSE 'task'
   END AS task_or_metadata,
   task_yaml_to_label(annotations_tasks.data) AS label,
-  CASE dynamic_annotation_fields.value
-    WHEN '' THEN dynamic_annotation_fields.value_json
-    ELSE dynamic_annotation_fields.value
-  END AS answer,
+  format_dynamic_annotation_field_value(
+    dynamic_annotation_fields.field_type,
+    CASE dynamic_annotation_fields.value
+      WHEN '' THEN dynamic_annotation_fields.value_json
+      ELSE dynamic_annotation_fields.value
+    END
+  ) AS answer,
   users.login AS answered_by,
   annotations_responses.created_at AS answered_at
 FROM annotations annotations_tasks
@@ -664,6 +669,89 @@ def _query_conversations(db: sqlite3.Connection) -> pa.Table:
     )
 
 
+_DYNAMIC_DATETIME_FIELD_VALUE_REGEX = re.compile(
+    (
+        r'^"(?P<YYYY>\d{4})-(?P<MM>\d\d)-(?P<DD>\d\d) '  # YYYY-MM-DD
+        r"(?P<h>\d\d?):(?P<m>\d\d?) "  # e.g., "0:1 " is 00:01 (12:01 AM)
+        r"(?P<offset>[-+]?\d\d?) \w+ "  # e.g., "+3 EAT "
+        r'(?P<notime>notime)?"$'  # either "notime" or ""
+    ),
+    re.ASCII,
+)
+
+
+def format_dynamic_annotation_field_value(field_type: str, value: str) -> Optional[str]:
+    """Format a dynamic value, very specific to Meedan.
+
+    The decode logic was reverse-engineered by inspecting check-api and
+    check-web source code. The formatting logic is custom here. The goal:
+    make complex answers easy to read. Output may be ambiguous.
+    (e.g., `["Option 1", "Option 2"]` may be formatted identically to
+    `["Option 1; Option 2"]`.)
+    """
+    if field_type in ("text", "select", "language", "json", "image_path", "id"):
+        try:
+            return str(json.loads(value))
+        except ValueError:
+            return value
+    elif field_type == "geojson":
+        try:
+            # Geojson is double-encoded. Decode it once.
+            value_decoded_once = str(json.loads(value))
+        except ValueError:
+            return value
+        try:
+            value_decoded_twice = json.loads(value_decoded_once)  # raise ValueError
+            if (
+                isinstance(value_decoded_twice, dict)
+                and value_decoded_twice.get("type") == "Feature"
+                and isinstance(value_decoded_twice.get("geometry"), dict)
+                and value_decoded_twice["geometry"].get("type") == "Point"
+                and isinstance(value_decoded_twice["geometry"].get("coordinates"), list)
+                and len(value_decoded_twice["geometry"]["coordinates"]) == 2
+            ):
+                lat, lng = value_decoded_twice["geometry"]["coordinates"]
+                if not (
+                    (isinstance(lat, int) or isinstance(lat, float))
+                    and (isinstance(lng, int) or isinstance(lng, float))
+                ):
+                    raise ValueError("lat/lng are not both numbers")
+                if isinstance(
+                    value_decoded_twice.get("properties"), dict
+                ) and isinstance(value_decoded_twice["properties"].get("name"), str):
+                    name = value_decoded_twice["properties"]["name"]
+                    return f"{name} ({lat}, {lng})"
+                return f"({lat}, {lng})"
+        except ValueError:
+            return value_decoded_once
+        return value_decoded_once
+    elif field_type == "datetime":
+        m = _DYNAMIC_DATETIME_FIELD_VALUE_REGEX.match(value)
+        if m:
+            if m.group("notime"):
+                return "-".join((m.group("YYYY"), m.group("MM"), m.group("DD")))
+            else:
+                dt = (
+                    datetime.datetime(
+                        int(m.group("YYYY")),
+                        int(m.group("MM")),
+                        int(m.group("DD")),
+                        int(m.group("h")),
+                        int(m.group("m")),
+                        0,
+                        0,
+                        datetime.timezone.utc,
+                    )
+                    - datetime.timedelta(hours=int(m.group("offset")))
+                )
+                # datetime.isoformat() returns ':SS' and misses 'Z', so we adjust it
+                return dt.isoformat()[:16] + "Z"
+        else:
+            return value
+    else:
+        return value
+
+
 def build_task_yaml_to_label() -> Callable[[str], str]:
     """Build a task_yaml_to_label() function, very specific to Meedan.
 
@@ -732,6 +820,11 @@ def build_task_yaml_to_label() -> Callable[[str], str]:
 
 def _query_tasks(db: sqlite3.Connection) -> pa.Table:
     db.create_function("task_yaml_to_label", 1, build_task_yaml_to_label())
+    db.create_function(
+        "format_dynamic_annotation_field_value",
+        2,
+        format_dynamic_annotation_field_value,
+    )
     cursor = db.cursor()
     for sql in TASKS_SQL.split(";\n"):
         # This SQL creates indexes to speed up the full query. The final
