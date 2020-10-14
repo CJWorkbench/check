@@ -652,7 +652,7 @@ def _query_conversations(db: sqlite3.Connection) -> pa.Table:
 
     # Extract messages in Python, not SQLite UDF, so it's easy to debug the
     # query as described in the README.
-    last_message_pattern = re.compile("(?:.*\n\u2063)*(.*)")
+    last_message_pattern = re.compile("(?:.*\n\u2063)*(.*)", re.DOTALL)
 
     def extract_last_message(messages_str: str) -> str:
         r"""Omit all but the final message from a conversation.
