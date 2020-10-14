@@ -426,6 +426,11 @@ SELECT
   ) AS item_title,
   CASE medias.type WHEN 'Claim' THEN 'Text' ELSE medias.type END AS item_type,
   medias.url AS item_url,
+  json_extract(media_metadatas.metadata_json, '$.published_at') AS item_derived_published_at,
+  json_extract(media_metadatas.metadata_json, '$.archives.archive_org.location') AS item_archive_org_url,
+  json_extract(media_metadatas.metadata_json, '$.description') AS item_derived_description,
+  json_extract(media_metadatas.metadata_json, '$.author_name') AS item_derived_author_name,
+  json_extract(media_metadatas.metadata_json, '$.author_url') AS item_derived_author_url,
   'https://checkmedia.org/' || teams.slug || '/media/' || project_medias.id AS check_url,
   parent_relationships.parent_project_media_id AS primary_item_id,
   parent_relationships.created_at AS primary_item_linked_at,
@@ -476,7 +481,7 @@ SELECT
   END AS task_or_metadata,
   task_yaml_to_label(annotations_tasks.data) AS label,
   format_dynamic_annotation_field_value(
-    dynamic_annotation_fields.field_name,
+    dynamic_annotation_fields.annotation_type,
     dynamic_annotation_fields.field_type,
     CASE dynamic_annotation_fields.value
       WHEN '' THEN dynamic_annotation_fields.value_json
@@ -581,10 +586,15 @@ class TextType:
 
 class TimestampType:
     def list_to_pyarrow(self, values: List[Optional[str]]) -> pa.Array:
-        return pa.array(
-            [(dateutil.parser.isoparse(v) if v else None) for v in values],
-            pa.timestamp("ns"),
-        )
+        def parse(v: Optional[str]) -> Optional[datetime.datetime]:
+            if v is None:
+                return None
+            try:
+                return dateutil.parser.isoparse(v)
+            except ValueError:
+                return None
+
+        return pa.array([parse(v) for v in values], pa.timestamp("ns"))
 
 
 QueryColumnType = Union[IdType, IntegerType, TextType, TimestampType]
@@ -687,7 +697,7 @@ _DYNAMIC_DATETIME_FIELD_VALUE_REGEX = re.compile(
 
 
 def format_dynamic_annotation_field_value(
-    field_name: str, field_type: str, value: str
+    annotation_type: str, field_type: str, value: str
 ) -> Optional[str]:
     """Format a dynamic value, very specific to Meedan.
 
@@ -708,16 +718,26 @@ def format_dynamic_annotation_field_value(
         except ValueError:
             return value
         if (
-            isinstance(decoded, dict)
-            and "selected" in decoded
-            and isinstance(decoded["selected"], list)
-            and all(isinstance(s, str) for s in decoded["selected"])
+            isinstance(decoded, str)
+            and annotation_type == "task_response_multiple_choice"
         ):
-            values = decoded["selected"]
-            if isinstance(decoded.get("other"), str):
-                values += [f"Other ({decoded['other']})"]
-            return ", ".join(values)
-        return decoded
+            # Meedan double-encodes JSON. Decode AGAIN, if we can.
+            try:
+                decoded = json.loads(decoded)
+            except ValueError:
+                return decoded
+            if (
+                isinstance(decoded, dict)
+                and "selected" in decoded
+                and isinstance(decoded["selected"], list)
+                and all(isinstance(s, str) for s in decoded["selected"])
+            ):
+                values = decoded["selected"]
+                if isinstance(decoded.get("other"), str):
+                    values += [f"Other ({decoded['other']})"]
+                return ", ".join(values)
+            return str(decoded)
+        return str(decoded)
     elif field_type == "geojson":
         try:
             # Geojson is double-encoded. Decode it once.

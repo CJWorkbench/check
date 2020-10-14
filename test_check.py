@@ -97,19 +97,21 @@ class FormatDynamicAnnotationFieldValueTest(unittest.TestCase):
 
     def test_select_single_choice_json_decode(self):
         self.assertEqual(
-            self.fn("response_single_choice", "select", r'"more-information"'),
+            self.fn("task_response_single_choice", "select", r'"more-information"'),
             "more-information",
         )
 
     def test_select_single_choice_return_raw_on_error(self):
-        self.assertEqual(self.fn("response_single_choice", "select", r'"hi'), '"hi')
+        self.assertEqual(
+            self.fn("task_response_single_choice", "select", r'"hi'), '"hi'
+        )
 
     def test_select_multiple_choice_without_other(self):
         self.assertEqual(
             self.fn(
-                "response_multiple_choice",
+                "task_response_multiple_choice",
                 "select",
-                '{"selected":["Religion","Political Opinion"],"other":"COVID19"}',
+                r'"{\"selected\":[\"Religion\",\"Political Opinion\"],\"other\":\"COVID19\"}"',
             ),
             "Religion, Political Opinion, Other (COVID19)",
         )
@@ -117,19 +119,21 @@ class FormatDynamicAnnotationFieldValueTest(unittest.TestCase):
     def test_select_multiple_choice_with_other(self):
         self.assertEqual(
             self.fn(
-                "response_multiple_choice",
+                "task_response_multiple_choice",
                 "select",
-                '{"selected":["Religion","Political Opinion"],"other":null}',
+                r'"{\"selected\":[\"Religion\",\"Political Opinion\"],\"other\":null}"',
             ),
             "Religion, Political Opinion",
         )
 
     def test_select_multiple_choice_return_raw_on_error(self):
-        self.assertEqual(self.fn("response_multiple_choice", "select", r'"hi'), '"hi')
+        self.assertEqual(
+            self.fn("task_response_multiple_choice", "select", r'"hi'), '"hi'
+        )
 
     def test_select_verification_status(self):
         self.assertEqual(
-            self.fn("verification_status_status", "select", "undetermined"),
+            self.fn("verification_status", "select", "undetermined"),
             "undetermined",
         )
 
