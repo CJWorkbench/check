@@ -510,21 +510,26 @@ CONVERSATIONS_SQL = r"""
 WITH
 smooch_users AS (
   SELECT
-    DISTINCT -- https://www.sqlite.org/optoverview.html#flattening
     json_extract(daf.value_json, '$.id') AS id,
     json_extract(daf.value_json, '$.raw.clients[0].platform') AS platform,
-    COALESCE(
+    -- There can be many annotations per WhatsApp user: one per project. We use
+    -- MAX() to pick just one value per user (at random). (Assume non-NULL
+    -- values are often identical or unique.)
+    MAX(COALESCE(
         json_extract(daf.value_json, '$.raw.clients[0].externalId'), -- https://docs.smooch.io/rest/#client-schema
         json_extract(daf.value_json, '$.raw.clients[0].displayName'), -- WhatsApp
         json_extract(daf.value_json, '$.raw.clients[0].avatarUrl') -- fallback?
-    ) AS user_id_on_platform, -- only tested on WhatsApp
-    json_extract(slack_channel_urls.value, '$') AS slack_channel_url
+    )) AS user_id_on_platform, -- only tested on WhatsApp
+    MAX(json_extract(slack_channel_urls.value, '$')) AS slack_channel_url
   FROM dynamic_annotation_fields daf
   INNER JOIN annotations ON daf.annotation_id = annotations.id
   LEFT JOIN dynamic_annotation_fields slack_channel_urls
          ON slack_channel_urls.annotation_id = annotations.id
         AND slack_channel_urls.field_name = 'smooch_user_slack_channel_url'
   WHERE daf.field_name = 'smooch_user_data'
+  GROUP BY
+    json_extract(daf.value_json, '$.id'),
+    json_extract(daf.value_json, '$.raw.clients[0].platform')
 )
 SELECT
   json_extract(daf.value_json, '$.source.type')
