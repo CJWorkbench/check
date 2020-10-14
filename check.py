@@ -476,6 +476,7 @@ SELECT
   END AS task_or_metadata,
   task_yaml_to_label(annotations_tasks.data) AS label,
   format_dynamic_annotation_field_value(
+    dynamic_annotation_fields.field_name,
     dynamic_annotation_fields.field_type,
     CASE dynamic_annotation_fields.value
       WHEN '' THEN dynamic_annotation_fields.value_json
@@ -685,7 +686,9 @@ _DYNAMIC_DATETIME_FIELD_VALUE_REGEX = re.compile(
 )
 
 
-def format_dynamic_annotation_field_value(field_type: str, value: str) -> Optional[str]:
+def format_dynamic_annotation_field_value(
+    field_name: str, field_type: str, value: str
+) -> Optional[str]:
     """Format a dynamic value, very specific to Meedan.
 
     The decode logic was reverse-engineered by inspecting check-api and
@@ -694,11 +697,27 @@ def format_dynamic_annotation_field_value(field_type: str, value: str) -> Option
     (e.g., `["Option 1", "Option 2"]` may be formatted identically to
     `["Option 1; Option 2"]`.)
     """
-    if field_type in ("text", "select", "language", "json", "image_path", "id"):
+    if field_type in ("text", "language", "json", "image_path", "id"):
         try:
             return str(json.loads(value))
         except ValueError:
             return value
+    elif field_type == "select":
+        try:
+            decoded = json.loads(value)
+        except ValueError:
+            return value
+        if (
+            isinstance(decoded, dict)
+            and "selected" in decoded
+            and isinstance(decoded["selected"], list)
+            and all(isinstance(s, str) for s in decoded["selected"])
+        ):
+            values = decoded["selected"]
+            if isinstance(decoded.get("other"), str):
+                values += [f"Other ({decoded['other']})"]
+            return ", ".join(values)
+        return decoded
     elif field_type == "geojson":
         try:
             # Geojson is double-encoded. Decode it once.
@@ -827,7 +846,7 @@ def _query_tasks(db: sqlite3.Connection) -> pa.Table:
     db.create_function("task_yaml_to_label", 1, build_task_yaml_to_label())
     db.create_function(
         "format_dynamic_annotation_field_value",
-        2,
+        3,
         format_dynamic_annotation_field_value,
     )
     cursor = db.cursor()

@@ -87,43 +87,79 @@ class FormatDynamicAnnotationFieldValueTest(unittest.TestCase):
         self.fn = format_dynamic_annotation_field_value
 
     def test_text_empty(self):
-        self.assertEqual(self.fn("text", '""'), "")
+        self.assertEqual(self.fn("any", "text", '""'), "")
 
     def test_text_json_decode(self):
-        self.assertEqual(self.fn("text", r'"hi\"\nthere"'), 'hi"\nthere')
+        self.assertEqual(self.fn("any", "text", r'"hi\"\nthere"'), 'hi"\nthere')
 
     def test_text_return_raw_on_error(self):
-        self.assertEqual(self.fn("text", "foo"), "foo")  # not JSON? leave as-is
+        self.assertEqual(self.fn("any", "text", "foo"), "foo")  # not JSON? leave as-is
 
-    def test_select_json_decode(self):
-        self.assertEqual(self.fn("select", r'"more-information"'), "more-information")
+    def test_select_single_choice_json_decode(self):
+        self.assertEqual(
+            self.fn("response_single_choice", "select", r'"more-information"'),
+            "more-information",
+        )
 
-    def test_select_return_raw_on_error(self):
-        self.assertEqual(self.fn("select", r'"hi'), '"hi')
+    def test_select_single_choice_return_raw_on_error(self):
+        self.assertEqual(self.fn("response_single_choice", "select", r'"hi'), '"hi')
+
+    def test_select_multiple_choice_without_other(self):
+        self.assertEqual(
+            self.fn(
+                "response_multiple_choice",
+                "select",
+                '{"selected":["Religion","Political Opinion"],"other":"COVID19"}',
+            ),
+            "Religion, Political Opinion, Other (COVID19)",
+        )
+
+    def test_select_multiple_choice_with_other(self):
+        self.assertEqual(
+            self.fn(
+                "response_multiple_choice",
+                "select",
+                '{"selected":["Religion","Political Opinion"],"other":null}',
+            ),
+            "Religion, Political Opinion",
+        )
+
+    def test_select_multiple_choice_return_raw_on_error(self):
+        self.assertEqual(self.fn("response_multiple_choice", "select", r'"hi'), '"hi')
+
+    def test_select_verification_status(self):
+        self.assertEqual(
+            self.fn("verification_status_status", "select", "undetermined"),
+            "undetermined",
+        )
 
     def test_language_json_decode(self):
-        self.assertEqual(self.fn("language", r'"vi"'), "vi")
+        self.assertEqual(self.fn("language", "language", r'"vi"'), "vi")
 
     def test_language_return_raw_on_error(self):
-        self.assertEqual(self.fn("language", r'"hi'), '"hi')
+        self.assertEqual(self.fn("language", "language", r'"hi'), '"hi')
 
     def test_json_decode_double_encoded_json_once(self):
         self.assertEqual(
-            self.fn("json", r'"{\"type\":\"text\",\"text\":\"👌\"}"'),
+            self.fn("metadata_value", "json", r'"{\"type\":\"text\",\"text\":\"👌\"}"'),
             '{"type":"text","text":"👌"}',
         )
 
     def test_image_path(self):
         self.assertEqual(
-            self.fn("image_path", r'"https://example.org"'), "https://example.org"
+            self.fn("any", "image_path", r'"https://example.org"'),
+            "https://example.org",
         )
 
     def test_id(self):
-        self.assertEqual(self.fn("id", '"1291428277.123212"'), "1291428277.123212")
+        self.assertEqual(
+            self.fn("any", "id", '"1291428277.123212"'), "1291428277.123212"
+        )
 
     def test_geojson(self):
         self.assertEqual(
             self.fn(
+                "any",
                 "geojson",
                 r'"{\"type\":\"Feature\",\"geometry\":{\"type\":\"Point\",\"coordinates\":[45.4972159,-73.6103642]},\"properties\":{\"name\":\"Montreal, QC, Canada\"}}"',
             ),
@@ -133,6 +169,7 @@ class FormatDynamicAnnotationFieldValueTest(unittest.TestCase):
     def test_geojson_no_name(self):
         self.assertEqual(
             self.fn(
+                "any",
                 "geojson",
                 r'"{\"type\":\"Feature\",\"geometry\":{\"type\":\"Point\",\"coordinates\":[45.4972159,-73.6103642]},\"properties\":{}}"',
             ),
@@ -142,6 +179,7 @@ class FormatDynamicAnnotationFieldValueTest(unittest.TestCase):
     def test_geojson_name_not_str(self):
         self.assertEqual(
             self.fn(
+                "any",
                 "geojson",
                 r'"{\"type\":\"Feature\",\"geometry\":{\"type\":\"Point\",\"coordinates\":[45.4972159,-73.6103642]},\"properties\":{\"name\":{}}}"',
             ),
@@ -151,6 +189,7 @@ class FormatDynamicAnnotationFieldValueTest(unittest.TestCase):
     def test_geojson_type_not_feature(self):
         self.assertEqual(
             self.fn(
+                "any",
                 "geojson",
                 r'"{\"type\":\"Point\",\"coordinates\":[45.4972159,-73.6103642]}"',
             ),
@@ -159,32 +198,36 @@ class FormatDynamicAnnotationFieldValueTest(unittest.TestCase):
 
     def test_datetime_gmt(self):
         self.assertEqual(
-            self.fn("datetime", '"2020-01-28 01:11 0 GMT "'), "2020-01-28T01:11Z"
+            self.fn("response_datetime", "datetime", '"2020-01-28 01:11 0 GMT "'),
+            "2020-01-28T01:11Z",
         )
 
     def test_datetime_not_gmt(self):
         self.assertEqual(
-            self.fn("datetime", '"2019-07-22 11:40 +3 EAT "'), "2019-07-22T08:40Z"
+            self.fn("response_datetime", "datetime", '"2019-07-22 11:40 +3 EAT "'),
+            "2019-07-22T08:40Z",
         )
 
     def test_datetime_change_days_with_timezone(self):
         self.assertEqual(
-            self.fn("datetime", '"2019-07-22 1:40 +3 EAT "'), "2019-07-21T22:40Z"
+            self.fn("response_datetime", "datetime", '"2019-07-22 1:40 +3 EAT "'),
+            "2019-07-21T22:40Z",
         )
 
     def test_datetime_notime(self):
         self.assertEqual(
-            self.fn("datetime", '"2020-03-01 0:0 0 GMT notime"'), "2020-03-01"
+            self.fn("response_datetime", "datetime", '"2020-03-01 0:0 0 GMT notime"'),
+            "2020-03-01",
         )
 
     def test_datetime_error_is_raw(self):
-        self.assertEqual(self.fn("datetime", '"200'), '"200')
+        self.assertEqual(self.fn("response_datetime", "datetime", '"200'), '"200')
 
     def test_boolean_true(self):
-        self.assertEqual(self.fn("boolean", "true"), "true")
+        self.assertEqual(self.fn("any", "boolean", "true"), "true")
 
     def test_boolean_false(self):
-        self.assertEqual(self.fn("boolean", "false"), "false")
+        self.assertEqual(self.fn("any", "boolean", "false"), "false")
 
 
 if __name__ == "__main__":
