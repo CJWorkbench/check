@@ -149,6 +149,9 @@ class FormatDynamicAnnotationFieldValueTest(unittest.TestCase):
             '{"type":"text","text":"👌"}',
         )
 
+    def test_image(self):
+        self.assertEqual(self.fn("any", "image", r'"Image.png"'), "Image.png")
+
     def test_image_path(self):
         self.assertEqual(
             self.fn("any", "image_path", r'"https://example.org"'),

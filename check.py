@@ -723,6 +723,11 @@ _DYNAMIC_DATETIME_FIELD_VALUE_REGEX = re.compile(
 )
 
 
+_DYNAMIC_JSON_ENCODED_STRING_FIELD_TYPES = frozenset(
+    ["text", "language", "json", "image", "image_path", "id"]
+)
+
+
 def format_dynamic_annotation_field_value(
     annotation_type: str, field_type: str, value: str
 ) -> Optional[str]:
@@ -734,7 +739,7 @@ def format_dynamic_annotation_field_value(
     (e.g., `["Option 1", "Option 2"]` may be formatted identically to
     `["Option 1; Option 2"]`.)
     """
-    if field_type in ("text", "language", "json", "image_path", "id"):
+    if field_type in _DYNAMIC_JSON_ENCODED_STRING_FIELD_TYPES:
         try:
             return str(json.loads(value))
         except ValueError:
