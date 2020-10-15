@@ -313,6 +313,29 @@ project_media_list1s AS (
   INNER JOIN projects ON project_media_projects.project_id = projects.id
   GROUP BY project_media_projects.project_media_id
 ),
+project_media_tags AS (
+  SELECT
+    annotated_id AS project_media_id,
+    CAST(SUBSTR(data, INSTR(data, 'tag: ') + 5, LENGTH(data) - 1) AS INT) AS tag_id
+  FROM annotations
+  WHERE annotated_type = 'ProjectMedia'
+    AND annotation_type = 'tag'
+),
+project_media_tag_texts AS (
+  SELECT
+    project_media_tags.project_media_id,
+    tag_texts.text
+  FROM project_media_tags
+  INNER JOIN tag_texts ON project_media_tags.tag_id = tag_texts.id
+  ORDER BY project_media_id, tag_texts.text -- so GROUP_CONCAT() orders alphabetically
+),
+project_media_tag_text_strings AS (
+  SELECT
+    project_media_id,
+    GROUP_CONCAT(text, ', ') AS text
+  FROM project_media_tag_texts
+  GROUP BY project_media_id
+),
 parent_relationships AS (
   SELECT
     relationships.target_id AS child_project_media_id,
@@ -444,6 +467,7 @@ SELECT
   last_analysis_titles.title AS item_analysis_title,
   last_analysis_contents.content AS item_analysis_content,
   project_media_list1s.list1 AS item_list1,
+  project_media_tag_text_strings.text AS item_tags,
   COALESCE(
     json_extract(project_media_metadatas.metadata_json, '$.title'),
     json_extract(media_metadatas.metadata_json, '$.title')
@@ -480,6 +504,7 @@ LEFT JOIN parent_relationships ON parent_relationships.child_project_media_id = 
 LEFT JOIN first_status_change_events ON first_status_change_events.project_media_id = project_medias.id
 LEFT JOIN last_status_change_events ON last_status_change_events.project_media_id = project_medias.id
 LEFT JOIN project_media_metadatas ON project_media_metadatas.project_media_id = project_medias.id
+LEFT JOIN project_media_tag_text_strings ON project_medias.id = project_media_tag_text_strings.project_media_id
 LEFT JOIN media_metadatas ON media_metadatas.media_id = medias.id
 LEFT JOIN last_reports ON last_reports.project_media_id = project_medias.id
 LEFT JOIN first_publish_events ON first_publish_events.project_media_id = project_medias.id
