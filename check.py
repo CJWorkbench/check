@@ -437,6 +437,8 @@ last_reports AS (
 )
 SELECT
   project_medias.id AS item_id,
+  project_medias.created_at AS item_created_at,
+  project_media_creators.login AS item_created_by,
   last_statuses.status AS item_status,
   CASE last_statuses.login WHEN 'smooch' THEN NULL ELSE last_statuses.login END AS item_status_by,
   last_analysis_titles.title AS item_analysis_title,
@@ -446,13 +448,13 @@ SELECT
     json_extract(project_media_metadatas.metadata_json, '$.title'),
     json_extract(media_metadatas.metadata_json, '$.title')
   ) AS item_title,
-  CASE medias.type WHEN 'Claim' THEN 'Text' ELSE medias.type END AS item_type,
-  medias.url AS item_url,
-  json_extract(media_metadatas.metadata_json, '$.published_at') AS item_derived_published_at,
-  json_extract(media_metadatas.metadata_json, '$.archives.archive_org.location') AS item_archive_org_url,
-  json_extract(media_metadatas.metadata_json, '$.description') AS item_derived_description,
-  json_extract(media_metadatas.metadata_json, '$.author_name') AS item_derived_author_name,
-  json_extract(media_metadatas.metadata_json, '$.author_url') AS item_derived_author_url,
+  CASE medias.type WHEN 'Claim' THEN 'Text' ELSE medias.type END AS media_type,
+  medias.url AS media_url,
+  json_extract(media_metadatas.metadata_json, '$.published_at') AS media_published_at,
+  json_extract(media_metadatas.metadata_json, '$.archives.archive_org.location') AS media_archive_org_url,
+  json_extract(media_metadatas.metadata_json, '$.description') AS media_description,
+  json_extract(media_metadatas.metadata_json, '$.author_name') AS media_author_name,
+  json_extract(media_metadatas.metadata_json, '$.author_url') AS media_author_url,
   'https://checkmedia.org/' || teams.slug || '/media/' || project_medias.id AS check_url,
   parent_relationships.parent_project_media_id AS primary_item_id,
   parent_relationships.created_at AS primary_item_linked_at,
@@ -482,6 +484,7 @@ LEFT JOIN media_metadatas ON media_metadatas.media_id = medias.id
 LEFT JOIN last_reports ON last_reports.project_media_id = project_medias.id
 LEFT JOIN first_publish_events ON first_publish_events.project_media_id = project_medias.id
 LEFT JOIN first_archived_events ON first_archived_events.project_media_id = project_medias.id
+LEFT JOIN users project_media_creators ON project_media_creators.id = project_medias.user_id
 ORDER BY project_medias.id DESC
 """
 

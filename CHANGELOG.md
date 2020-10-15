@@ -2,6 +2,8 @@
 -------------
 
 * Items: add `item_analysis_title`, `item_analysis_content`
+* Items: change `item_url` to `media_url` and `item_derived_***` to `media_***`
+* Items: add `item_created_at`, `item_created_by`
 
 2020-10-14.01
 -------------
