@@ -267,6 +267,7 @@ WITH
 statuses AS (
   SELECT
     ROW_NUMBER() OVER (PARTITION BY a.annotated_id ORDER BY a.id DESC) AS rn_desc,
+    daf.annotation_id,
     a.annotated_id AS project_media_id,
     u.login AS login,
     daf.value -- JSON-encoded String value
@@ -279,11 +280,30 @@ statuses AS (
 ),
 last_statuses AS (
   SELECT
+    annotation_id,
     project_media_id,
     login,
     json_extract(value, '$') AS status -- it's a JSON-encoded String
   FROM statuses
   WHERE rn_desc = 1
+),
+last_analysis_titles AS (
+  SELECT
+    last_statuses.project_media_id,
+    json_extract(daf.value, '$') AS title -- it's a JSON-encoded String
+  FROM last_statuses
+  INNER JOIN dynamic_annotation_fields daf
+          ON daf.annotation_id = last_statuses.annotation_id
+         AND daf.field_name = 'title'
+),
+last_analysis_contents AS (
+  SELECT
+    last_statuses.project_media_id,
+    json_extract(daf.value, '$') AS content -- it's a JSON-encoded String
+  FROM last_statuses
+  INNER JOIN dynamic_annotation_fields daf
+          ON daf.annotation_id = last_statuses.annotation_id
+         AND daf.field_name = 'content'
 ),
 project_media_list1s AS (
   SELECT
@@ -419,6 +439,8 @@ SELECT
   project_medias.id AS item_id,
   last_statuses.status AS item_status,
   CASE last_statuses.login WHEN 'smooch' THEN NULL ELSE last_statuses.login END AS item_status_by,
+  last_analysis_titles.title AS item_analysis_title,
+  last_analysis_contents.content AS item_analysis_content,
   project_media_list1s.list1 AS item_list1,
   COALESCE(
     json_extract(project_media_metadatas.metadata_json, '$.title'),
@@ -450,6 +472,8 @@ INNER JOIN medias ON project_medias.media_id = medias.id
 INNER JOIN teams ON teams.id = project_medias.team_id
 LEFT JOIN project_media_list1s ON project_media_list1s.project_media_id = project_medias.id
 LEFT JOIN last_statuses ON last_statuses.project_media_id = project_medias.id
+LEFT JOIN last_analysis_titles ON last_analysis_titles.project_media_id = project_medias.id
+LEFT JOIN last_analysis_contents ON last_analysis_contents.project_media_id = project_medias.id
 LEFT JOIN parent_relationships ON parent_relationships.child_project_media_id = project_medias.id
 LEFT JOIN first_status_change_events ON first_status_change_events.project_media_id = project_medias.id
 LEFT JOIN last_status_change_events ON last_status_change_events.project_media_id = project_medias.id
