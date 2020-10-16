@@ -963,7 +963,7 @@ def _open_sqlite3_lz4_file(path) -> ContextManager[sqlite3.Connection]:
                     break
                 tf.write(block)
         tf.flush()
-        with sqlite3.connect(tf.name) as db:
+        with contextlib.closing(sqlite3.connect(tf.name)) as db:
             yield db
 
 
