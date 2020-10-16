@@ -696,22 +696,22 @@ def _cursor_to_table(cursor: sqlite3.Cursor) -> pa.Table:
 
 def _query_submissions_and_claims(db: sqlite3.Connection) -> pa.Table:
     """Return a table; raise sqlite3.ProgrammingError if queries fail."""
-    cursor = db.cursor()
-    cursor.execute(SUBMISSIONS_AND_CLAIMS_SQL)
-    return _cursor_to_table(cursor)
+    with contextlib.closing(db.cursor()) as cursor:
+        cursor.execute(SUBMISSIONS_AND_CLAIMS_SQL)
+        return _cursor_to_table(cursor)
 
 
 def _query_items(db: sqlite3.Connection) -> pa.Table:
     """Return a table; raise sqlite3.ProgrammingError if queries fail."""
-    cursor = db.cursor()
-    cursor.execute(ITEMS_SQL)
-    return _cursor_to_table(cursor)
+    with contextlib.closing(db.cursor()) as cursor:
+        cursor.execute(ITEMS_SQL)
+        return _cursor_to_table(cursor)
 
 
 def _query_conversations(db: sqlite3.Connection) -> pa.Table:
-    cursor = db.cursor()
-    cursor.execute(CONVERSATIONS_SQL)
-    table1 = _cursor_to_table(cursor)
+    with contextlib.closing(db.cursor()) as cursor:
+        cursor.execute(CONVERSATIONS_SQL)
+        table1 = _cursor_to_table(cursor)
 
     # Extract messages in Python, not SQLite UDF, so it's easy to debug the
     # query as described in the README.
@@ -926,12 +926,12 @@ def _query_tasks(db: sqlite3.Connection) -> pa.Table:
         3,
         format_dynamic_annotation_field_value,
     )
-    cursor = db.cursor()
-    for sql in TASKS_SQL.split(";\n"):
-        # This SQL creates indexes to speed up the full query. The final
-        # query is the one _cursor_to_table() will iterate over.
-        cursor.execute(sql)
-    return _cursor_to_table(cursor)
+    with contextlib.closing(db.cursor()) as cursor:
+        for sql in TASKS_SQL.split(";\n"):
+            # This SQL creates indexes to speed up the full query. The final
+            # query is the one _cursor_to_table() will iterate over.
+            cursor.execute(sql)
+        return _cursor_to_table(cursor)
 
 
 def query_database(db: sqlite3.Connection, query_slug: str) -> pa.Table:
