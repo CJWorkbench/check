@@ -4,7 +4,18 @@ import json
 import re
 import sqlite3
 import tempfile
-from typing import Callable, ContextManager, List, NamedTuple, Optional, Tuple, Union
+from pathlib import Path
+from typing import (
+    Any,
+    Callable,
+    ContextManager,
+    Dict,
+    List,
+    NamedTuple,
+    Optional,
+    Tuple,
+    Union,
+)
 
 import dateutil.parser
 import lz4.frame
@@ -31,6 +42,7 @@ from cjwmodule import i18n
 # * Column name ending in ' [text]' etc: override type (and nix the " [text]"
 #   from the column name).
 # * Column name ending in '_id': id
+# * Column name ending in '_by': username
 # * Column name ending in '_at': timestamp
 
 SUBMISSIONS_AND_CLAIMS_SQL = r"""
@@ -636,6 +648,11 @@ class TextType:
         return pa.array(values, pa.utf8())
 
 
+class UsernameType(TextType):
+    def list_to_pyarrow(self, values: List[Optional[str]]) -> pa.Array:
+        return pa.array(values, pa.utf8()).dictionary_encode()
+
+
 class TimestampType:
     def list_to_pyarrow(self, values: List[Optional[str]]) -> pa.Array:
         def parse(v: Optional[str]) -> Optional[datetime.datetime]:
@@ -670,6 +687,8 @@ def _column_name_to_query_column(name: str) -> QueryColumn:
         elif match.group(2) == "timestamp":
             type = TimestampType()
         return QueryColumn(name, type)
+    elif name.endswith("_by"):
+        return QueryColumn(name, UsernameType())
     elif name.endswith("_id"):
         return QueryColumn(name, IdType())
     elif name.endswith("_at"):
@@ -705,7 +724,21 @@ def _query_items(db: sqlite3.Connection) -> pa.Table:
     """Return a table; raise sqlite3.ProgrammingError if queries fail."""
     with contextlib.closing(db.cursor()) as cursor:
         cursor.execute(ITEMS_SQL)
-        return _cursor_to_table(cursor)
+        table = _cursor_to_table(cursor)
+    status_id_to_label = _query_team_status_labels_lookup(db)
+
+    # dictionary_encode() makes the pylist take less RAM because strings aren't
+    # duplicated. (Each duplicated Python string costs 50 bytes overhead.)
+    status_ids = table["item_status"].dictionary_encode().to_pylist()
+    status_labels = pa.array(
+        [(status_id_to_label[id] if id is not None else None) for id in status_ids],
+        pa.utf8(),
+    ).dictionary_encode()
+    table = table.set_column(
+        table.column_names.index("item_status"), "item_status", status_labels
+    )
+
+    return table
 
 
 def _query_conversations(db: sqlite3.Connection) -> pa.Table:
@@ -919,6 +952,103 @@ def build_task_yaml_to_label() -> Callable[[str], str]:
     return task_yaml_to_label
 
 
+def team_settings_yaml_to_status_label_lookup(settings_yaml: str) -> Dict[str, str]:
+    """Parse crazy YAML into a simple lookup table.
+
+    Raise any kind of error if the YAML does not match expectations.
+    """
+
+    def read_hash_with_indifferent_access(loader, node):
+        """!ruby/hash:ActiveSupport::HashWithIndifferentAccess"""
+        return loader.construct_mapping(node)
+
+    def read_action_controller_parameters(loader, node):
+        """!ruby/hash-with-ivars:ActionController::Parameters"""
+        outer = loader.construct_mapping(node)
+        return outer["elements"]
+
+    def read_ruby_set(loader, node):
+        """!ruby/object:Set
+
+        # pyyaml doesn't support complex key syntax, which "!ruby/object:Set"
+        # uses. (Presumably, Ruby folks decided that encoding a set as a list
+        # would be too obvious.) So we nix it all. We don't need sets to read
+        # statuses. And luckily, pyyaml's parser is able to skip the tokens
+        # when they aren't used.
+        """
+        return ["<set ignored>"]
+
+    import yaml
+
+    loader = yaml.SafeLoader(settings_yaml)
+    loader.add_constructor(
+        "!ruby/hash:ActiveSupport::HashWithIndifferentAccess",
+        read_hash_with_indifferent_access,
+    )
+    loader.add_constructor(
+        "!ruby/hash-with-ivars:ActionController::Parameters",
+        read_action_controller_parameters,
+    )
+    loader.add_constructor("!ruby/object:Set", read_ruby_set)
+
+    try:
+        settings = loader.get_single_data()
+    finally:
+        loader.dispose()
+
+    def get_first(d: Dict[str, Any], keys: List[str], default: Any = None) -> Any:
+        """Like d.get(key, default) ... for the first matching key of keys.
+
+        Ruby-encoded YAML tends to sometimes key by _symbol_ and other times key
+        by _string_. This is shorthand to try both.
+
+        Usage:
+
+            statuses = get_first(d, [":statuses", "statuses"])
+        """
+        for key in keys:
+            if key in d:
+                return d[key]
+        else:
+            return default
+
+    statuses_outer = get_first(
+        settings, [":media_verification_statuses", "media_verification_statuses"]
+    )
+    if statuses_outer is None:
+        raise RuntimeError("Missing Team.settings.media_verification_statuses")
+    statuses = get_first(statuses_outer, [":statuses", "statuses"])
+    if statuses is None:
+        raise RuntimeError("Missing Team.settings.media_verification_statuses.statuses")
+
+    ret = {}
+    for status in statuses:
+        status_id = get_first(status, [":id", "id"])
+        status_label = get_first(status, [":label", "label"])
+        if status_id is None or status_label is None:
+            raise RuntimeError("Status %r missing id or label" % status)
+        ret[status_id] = status_label
+    return ret
+
+
+def _query_team_status_labels_lookup(db: sqlite3.Connection) -> Dict[str, str]:
+    """Query the status-slug -> status-label lookup for the team.
+
+    Raise ValueError if there is more than one team in the database.
+
+    Check doesn't store statuses in a table: it stores them nested somewhere in
+    one giant, Rails-specific YAML value. This requires a custom parser.
+    """
+    with contextlib.closing(db.cursor()) as cursor:
+        cursor.execute("SELECT settings FROM teams")
+        rows = cursor.fetchall()
+        if len(rows) != 1:
+            raise ValueError("Too many teams in the database")
+        yaml_blob = rows[0][0]
+
+    return team_settings_yaml_to_status_label_lookup(yaml_blob)
+
+
 def _query_tasks(db: sqlite3.Connection) -> pa.Table:
     db.create_function("task_yaml_to_label", 1, build_task_yaml_to_label())
     db.create_function(
@@ -951,9 +1081,9 @@ class InvalidLz4File(Exception):
 
 
 @contextlib.contextmanager
-def _open_sqlite3_lz4_file(path) -> ContextManager[sqlite3.Connection]:
+def _open_sqlite3_lz4_file(db_lz4_path: Path) -> ContextManager[sqlite3.Connection]:
     with tempfile.NamedTemporaryFile(mode="wb") as tf:
-        with lz4.frame.open(path) as lz4_file:
+        with lz4.frame.open(db_lz4_path) as lz4_file:
             while True:
                 try:
                     block = lz4_file.read1()
@@ -967,28 +1097,35 @@ def _open_sqlite3_lz4_file(path) -> ContextManager[sqlite3.Connection]:
             yield db
 
 
+def _build_arrow_table(db_lz4_path: Path, query_slug: str) -> pa.Table:
+    """Main logic. Used by render() and by command-line script."""
+    with _open_sqlite3_lz4_file(db_lz4_path) as db:
+        validate_database(db)  # raises sqlite3.DatabaseError
+
+        try:
+            arrow_table = query_database(db, query_slug)
+            return arrow_table, []
+        except sqlite3.ProgrammingError:
+            return None, [i18n.trans("error.queryError", "Please upload a newer file.")]
+
+
 def render(arrow_table, params, output_path, **kwargs):
     if params["file"] is None:
         return []
 
     try:
-        with _open_sqlite3_lz4_file(params["file"]) as db:
-            validate_database(db)  # raises sqlite3.DatabaseError
-
-            try:
-                arrow_table = query_database(db, params["query_slug"])
-            except sqlite3.ProgrammingError:
-                return [i18n.trans("error.queryError", "Please upload a newer file.")]
-
-            with pyarrow.RecordBatchFileWriter(
-                str(output_path), arrow_table.schema
-            ) as writer:
-                writer.write_table(arrow_table)
-            return []
+        arrow_table, errors = _build_arrow_table(params["file"], params["query_slug"])
     except (InvalidLz4File, sqlite3.DatabaseError) as err:
         return [
             i18n.trans("error.invalidFile", "Please upload a valid .sqlite3.lz4 file.")
         ]
+
+    if arrow_table is not None:
+        with pyarrow.RecordBatchFileWriter(
+            str(output_path), arrow_table.schema
+        ) as writer:
+            writer.write_table(arrow_table)
+    return errors
 
 
 def _migrate_params_v0_to_v1(params):
@@ -1010,3 +1147,21 @@ def migrate_params(params):
     if "query_slug" not in params:
         params = _migrate_params_v0_to_v1(params)
     return params
+
+
+if __name__ == "__main__":
+    import sys
+
+    if len(sys.argv) != 3:
+        print(
+            f"Usage: {sys.argv[0]} conversations|items|tasks /path/to/file.lz4",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+
+    table, errors = _build_arrow_table(Path(sys.argv[2]), sys.argv[1])
+    if errors:
+        print(errors)
+    for column, name in zip(table.columns, table.column_names):
+        print("%s: %s (%d)" % (name, column.type, len(table)))
+        print(column.to_string())

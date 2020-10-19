@@ -27,12 +27,12 @@ msgid "_spec.parameters.query_slug.options.items.label"
 msgstr ""
 
 #. default-message: Please upload a newer file.
-#: check.py:981
+#: check.py:1109
 msgid "error.queryError"
 msgstr ""
 
 #. default-message: Please upload a valid .sqlite3.lz4 file.
-#: check.py:990
+#: check.py:1120
 msgid "error.invalidFile"
 msgstr ""
 
