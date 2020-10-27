@@ -609,9 +609,10 @@ SELECT
   smooch_users.platform || ':' || smooch_users.user_id_on_platform AS user,
   annotations.created_at AS created_at,
   CASE
+    WHEN annotations.annotated_type = 'BotResource' THEN 'resource'
     WHEN annotations.annotated_type = 'ProjectMedia' THEN CASE
       WHEN json_extract(daf.value_json, '$.project_id') IS NOT NULL THEN 'submission'
-      ELSE 'resource'
+      ELSE 'resource' -- old-style resource
     END
     ELSE NULL
   END AS outcome,
@@ -619,11 +620,16 @@ SELECT
     WHEN annotations.annotated_type = 'ProjectMedia' THEN annotations.annotated_id
     ELSE NULL
   END AS item_id,
+  CASE
+    WHEN annotations.annotated_type = 'BotResource' THEN bot_resources.title
+    ELSE NULL
+  END AS resource_title,
   json_extract(daf.value_json, '$.text') AS user_messages, -- delimited by \u2063
   smooch_users.slack_channel_url AS slack_channel_url
 FROM dynamic_annotation_fields daf
 INNER JOIN annotations ON annotations.id = daf.annotation_id
 LEFT JOIN smooch_users ON smooch_users.id = json_extract(daf.value_json, '$.authorId')
+LEFT JOIN bot_resources ON annotations.annotated_type = 'BotResource' AND annotations.annotated_id = bot_resources.id
 WHERE daf.field_name = 'smooch_data'
 ORDER BY daf.created_at DESC, daf.id DESC
 """

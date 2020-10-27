@@ -1,9 +1,14 @@
+2020-10-27.01
+-------------
+
+* Conversations: add `resource_title` column
+
 2020-10-19.01
 -------------
 
 * Items: look up `item_status` label.
 * [dev-mode] allow running from the command line.
-* [internal] dictionary-encode username and statuse columns.
+* [internal] dictionary-encode username and status columns.
 
 2020-10-15.01
 -------------
