@@ -3,7 +3,10 @@
 
 * Tasks and metadata: add `first_note` column
 * Items: add `item_notes` column (all notes, newline-separated)
+* Items: add `item_language` column
 * Nix "Submissions and Claims" query
+* Dictionary-encode columns like "item_language". Should lead to smaller
+  Parquet files (because columns can be encoded to be tiny).
 
 2020-10-27.01
 -------------

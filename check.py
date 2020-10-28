@@ -230,6 +230,17 @@ media_metadatas AS (
     AND annotations.annotation_type = 'metadata'
     AND dynamic_annotation_fields.field_name = 'metadata_value'
 ),
+project_media_languages AS (
+  SELECT
+    annotations.annotated_id AS project_media_id,
+    MIN(JSON_EXTRACT(dynamic_annotation_fields.value, '$')) AS language
+  FROM dynamic_annotation_fields
+  INNER JOIN annotations ON dynamic_annotation_fields.annotation_id = annotations.id
+  WHERE annotations.annotated_type = 'ProjectMedia'
+    AND annotations.annotation_type = 'language'
+    AND dynamic_annotation_fields.field_name = 'language'
+  GROUP BY annotations.annotated_id
+),
 project_media_metadatas AS (
   SELECT
     annotations.annotated_id AS project_media_id,
@@ -260,16 +271,17 @@ SELECT
   project_medias.id AS item_id,
   project_medias.created_at AS item_created_at,
   project_media_creators.login AS item_created_by,
-  last_statuses.status AS item_status,
+  last_statuses.status AS item_status, -- IDs, decoded in Python later
   CASE last_statuses.login WHEN 'smooch' THEN NULL ELSE last_statuses.login END AS item_status_by,
   last_analysis_titles.title AS item_analysis_title,
   last_analysis_contents.content AS item_analysis_content,
-  project_media_list1s.list1 AS item_list1,
+  project_media_list1s.list1 AS "item_list1 [dictionarytext]",
   project_media_tag_text_strings.text AS item_tags,
   COALESCE(
     json_extract(project_media_metadatas.metadata_json, '$.title'),
     json_extract(media_metadatas.metadata_json, '$.title')
   ) AS item_title,
+  project_media_languages.language AS "item_language [dictionarytext]",
   project_media_merged_comments.comments AS item_notes,
   CASE medias.type WHEN 'Claim' THEN 'Text' ELSE medias.type END AS media_type,
   medias.url AS media_url,
@@ -286,7 +298,7 @@ SELECT
   first_status_change_events.login AS first_item_status_changed_by,
   last_status_change_events.created_at AS last_item_status_changed_at,
   last_status_change_events.login AS last_item_status_changed_by,
-  last_reports.status AS item_report_status,
+  last_reports.status AS "item_report_status [dictionarytext]",
   first_publish_events.created_at AS item_report_first_published_at,
   first_publish_events.login AS item_report_first_published_by,
   project_medias.archived AS "item_archived [integer]",
@@ -302,6 +314,7 @@ LEFT JOIN last_analysis_contents ON last_analysis_contents.project_media_id = pr
 LEFT JOIN parent_relationships ON parent_relationships.child_project_media_id = project_medias.id
 LEFT JOIN first_status_change_events ON first_status_change_events.project_media_id = project_medias.id
 LEFT JOIN last_status_change_events ON last_status_change_events.project_media_id = project_medias.id
+LEFT JOIN project_media_languages ON project_media_languages.project_media_id = project_medias.id
 LEFT JOIN project_media_metadatas ON project_media_metadatas.project_media_id = project_medias.id
 LEFT JOIN project_media_tag_text_strings ON project_medias.id = project_media_tag_text_strings.project_media_id
 LEFT JOIN project_media_merged_comments ON project_media_merged_comments.project_media_id = project_medias.id
@@ -346,7 +359,7 @@ SELECT
   CASE
     WHEN annotations_tasks.data LIKE ('%' || CHAR(0xa) || 'fieldset: metadata' || CHAR(0xa) || '%') THEN 'metadata'
     ELSE 'task'
-  END AS task_or_metadata,
+  END AS "task_or_metadata [dictionarytext]",
   task_yaml_to_label(annotations_tasks.data) AS label,
   format_dynamic_annotation_field_value(
     dynamic_annotation_fields.annotation_type,
@@ -422,7 +435,7 @@ SELECT
       ELSE 'resource' -- old-style resource
     END
     ELSE NULL
-  END AS outcome,
+  END AS "outcome [dictionarytext]",
   CASE
     WHEN annotations.annotated_type = 'ProjectMedia' THEN annotations.annotated_id
     ELSE NULL
@@ -461,7 +474,7 @@ class TextType:
         return pa.array(values, pa.utf8())
 
 
-class UsernameType(TextType):
+class DictionaryTextType(TextType):
     def list_to_pyarrow(self, values: List[Optional[str]]) -> pa.Array:
         return pa.array(values, pa.utf8()).dictionary_encode()
 
@@ -488,7 +501,7 @@ class QueryColumn(NamedTuple):
 
 
 def _column_name_to_query_column(name: str) -> QueryColumn:
-    match = re.match(r"(.+) \[(id|integer|text|timestamp)\]", name)
+    match = re.match(r"(.+) \[(id|integer|text|dictionarytext|timestamp)\]", name)
     if match:
         name = match.group(1)
         if match.group(2) == "id":
@@ -499,9 +512,11 @@ def _column_name_to_query_column(name: str) -> QueryColumn:
             type = IntegerType()
         elif match.group(2) == "timestamp":
             type = TimestampType()
+        elif match.group(2) == "dictionarytext":
+            return QueryColumn(name, DictionaryTextType())
         return QueryColumn(name, type)
     elif name.endswith("_by"):
-        return QueryColumn(name, UsernameType())
+        return QueryColumn(name, DictionaryTextType())
     elif name.endswith("_id"):
         return QueryColumn(name, IdType())
     elif name.endswith("_at"):
