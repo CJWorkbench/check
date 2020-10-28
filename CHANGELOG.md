@@ -1,3 +1,8 @@
+2020-10-28.01
+-------------
+
+* Tasks and metadata: add `first_comment` column
+
 2020-10-27.01
 -------------
 

@@ -528,6 +528,22 @@ ORDER BY project_medias.id DESC
 TASKS_SQL = r"""
 CREATE INDEX annotations__annotated_id ON annotations (annotated_id);
 CREATE INDEX dynamic_annotation_fields__annotation_id ON dynamic_annotation_fields (annotation_id);
+WITH task_comments AS (
+  SELECT
+    annotated_id AS task_id,
+    ROW_NUMBER() OVER (PARTITION BY annotated_id ORDER BY id) AS comment_number,
+    REPLACE(data, '--- !ruby/hash:ActiveSupport::HashWithIndifferentAccess' || CHAR(10), '') AS comment_yaml
+  FROM annotations
+  WHERE annotation_type = 'comment'
+    AND annotated_type = 'Task'
+  ORDER BY annotated_id, comment_number
+),
+first_task_comments AS (
+  SELECT task_id, comment_yaml_to_text(comment_yaml) AS comment
+  FROM task_comments
+  WHERE comment_number = 1
+  ORDER BY task_id
+)
 SELECT
   annotations_tasks.id AS task_id,
   annotations_tasks.annotated_id AS item_id,
@@ -553,7 +569,8 @@ SELECT
     END
   ) AS answer,
   users.login AS answered_by,
-  annotations_responses.created_at AS answered_at
+  annotations_responses.created_at AS answered_at,
+  first_task_comments.comment AS first_comment
 FROM annotations annotations_tasks
 LEFT JOIN annotations annotations_responses
        ON annotations_responses.annotated_type = 'Task'
@@ -564,6 +581,8 @@ LEFT JOIN dynamic_annotation_fields
 LEFT JOIN users
        ON annotations_responses.annotator_type = 'User'
       AND annotations_responses.annotator_id = users.id
+LEFT JOIN first_task_comments
+       ON first_task_comments.task_id = annotations_tasks.id
 WHERE annotations_tasks.annotated_type = 'ProjectMedia'
   AND annotations_tasks.annotation_type = 'task'
 ORDER BY
@@ -958,6 +977,23 @@ def build_task_yaml_to_label() -> Callable[[str], str]:
     return task_yaml_to_label
 
 
+def comment_yaml_to_text(comment_yaml: str) -> str:
+    """Parse a Comment annotation's `data` field into a string.
+
+    Assumes `data` field:
+
+        * Is valid YAML
+        * Contains a "text" field
+        * Has no extensions (that is, "--- !ruby/hash" etc aren't in it). (We
+          ensure this in the query.)
+
+    Raise any kind of error if the data field does not match assumptions.
+    """
+    import yaml
+
+    return yaml.safe_load(comment_yaml)["text"]
+
+
 def team_settings_yaml_to_status_label_lookup(settings_yaml: str) -> Dict[str, str]:
     """Parse crazy YAML into a simple lookup table.
 
@@ -1057,6 +1093,7 @@ def _query_team_status_labels_lookup(db: sqlite3.Connection) -> Dict[str, str]:
 
 def _query_tasks(db: sqlite3.Connection) -> pa.Table:
     db.create_function("task_yaml_to_label", 1, build_task_yaml_to_label())
+    db.create_function("comment_yaml_to_text", 1, comment_yaml_to_text)
     db.create_function(
         "format_dynamic_annotation_field_value",
         3,
