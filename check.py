@@ -119,6 +119,21 @@ project_media_tag_text_strings AS (
   FROM project_media_tag_texts
   GROUP BY project_media_id
 ),
+project_media_comments AS (
+  SELECT
+    annotated_id AS project_media_id,
+    ROW_NUMBER() OVER (PARTITION BY annotated_id ORDER BY id) AS comment_number,
+    REPLACE(data, '--- !ruby/hash:ActiveSupport::HashWithIndifferentAccess' || CHAR(10), '') AS comment_yaml
+  FROM annotations
+  WHERE annotation_type = 'comment'
+    AND annotated_type = 'ProjectMedia'
+  ORDER BY annotated_id, comment_number
+),
+project_media_merged_comments AS (
+  SELECT project_media_id, GROUP_CONCAT(comment_yaml_to_text(comment_yaml), CHAR(10) || CHAR(10)) AS comments
+  FROM project_media_comments
+  GROUP BY project_media_id
+),
 parent_relationships AS (
   SELECT
     relationships.target_id AS child_project_media_id,
@@ -255,6 +270,7 @@ SELECT
     json_extract(project_media_metadatas.metadata_json, '$.title'),
     json_extract(media_metadatas.metadata_json, '$.title')
   ) AS item_title,
+  project_media_merged_comments.comments AS item_notes,
   CASE medias.type WHEN 'Claim' THEN 'Text' ELSE medias.type END AS media_type,
   medias.url AS media_url,
   json_extract(media_metadatas.metadata_json, '$.published_at') AS media_published_at,
@@ -288,6 +304,7 @@ LEFT JOIN first_status_change_events ON first_status_change_events.project_media
 LEFT JOIN last_status_change_events ON last_status_change_events.project_media_id = project_medias.id
 LEFT JOIN project_media_metadatas ON project_media_metadatas.project_media_id = project_medias.id
 LEFT JOIN project_media_tag_text_strings ON project_medias.id = project_media_tag_text_strings.project_media_id
+LEFT JOIN project_media_merged_comments ON project_media_merged_comments.project_media_id = project_medias.id
 LEFT JOIN media_metadatas ON media_metadatas.media_id = medias.id
 LEFT JOIN last_reports ON last_reports.project_media_id = project_medias.id
 LEFT JOIN first_publish_events ON first_publish_events.project_media_id = project_medias.id
@@ -511,6 +528,7 @@ def _cursor_to_table(cursor: sqlite3.Cursor) -> pa.Table:
 
 def _query_items(db: sqlite3.Connection) -> pa.Table:
     """Return a table; raise sqlite3.ProgrammingError if queries fail."""
+    db.create_function("comment_yaml_to_text", 1, comment_yaml_to_text)
     with contextlib.closing(db.cursor()) as cursor:
         cursor.execute(ITEMS_SQL)
         table = _cursor_to_table(cursor)
