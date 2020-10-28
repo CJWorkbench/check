@@ -1,7 +1,7 @@
 2020-10-28.01
 -------------
 
-* Tasks and metadata: add `first_comment` column
+* Tasks and metadata: add `first_note` column
 * Items: add `item_notes` column (all notes, newline-separated)
 * Nix "Submissions and Claims" query
 

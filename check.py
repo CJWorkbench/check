@@ -358,7 +358,7 @@ SELECT
   ) AS answer,
   users.login AS answered_by,
   annotations_responses.created_at AS answered_at,
-  first_task_comments.comment AS first_comment
+  first_task_comments.comment AS first_note
 FROM annotations annotations_tasks
 LEFT JOIN annotations annotations_responses
        ON annotations_responses.annotated_type = 'Task'
