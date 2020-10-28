@@ -14,7 +14,6 @@ parameters:
   type: menu
   default: items
   options:
-  - { value: submissions_and_claims, label: Submissions and Claims }
   - { value: tasks, label: Tasks and Metadata }
   - { value: conversations, label: Tipline Conversations }
   - { value: items, label: Items }

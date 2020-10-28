@@ -10,13 +10,27 @@ ANY_OLD_UUID = "f00198a1-c1b1-4f61-b125-de5df41b86a2"
 
 
 class MigrateParamsTest(unittest.TestCase):
-    def test_v0_to_v1(self):
+    def test_v0(self):
         self.assertEqual(
             migrate_params({"file": ANY_OLD_UUID}),
-            {"file": ANY_OLD_UUID, "query_slug": "submissions_and_claims"},
+            {"file": ANY_OLD_UUID, "query_slug": "items"},
         )
 
-    def test_v1(self):
+    def test_v1_fallback_to_items(self):
+        self.assertEqual(
+            migrate_params(
+                {"file": ANY_OLD_UUID, "query_slug": "submissions_and_claims"}
+            ),
+            {"file": ANY_OLD_UUID, "query_slug": "items"},  # fallback
+        )
+
+    def test_v1_only_change_when_query_slug_is_submissions_and_claims(self):
+        self.assertEqual(
+            migrate_params({"file": ANY_OLD_UUID, "query_slug": "tasks"}),
+            {"file": ANY_OLD_UUID, "query_slug": "tasks"},  # not changed
+        )
+
+    def test_v2(self):
         self.assertEqual(
             migrate_params({"file": ANY_OLD_UUID, "query_slug": "tasks"}),
             {"file": ANY_OLD_UUID, "query_slug": "tasks"},

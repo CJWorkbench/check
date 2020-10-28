@@ -2,6 +2,7 @@
 -------------
 
 * Tasks and metadata: add `first_comment` column
+* Nix "Submissions and Claims" query
 
 2020-10-27.01
 -------------
