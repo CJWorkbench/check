@@ -1,3 +1,4 @@
+import functools
 from check import (
     build_task_yaml_to_label,
     migrate_params,
@@ -98,7 +99,7 @@ label: BOOM Link
 class FormatDynamicAnnotationFieldValueTest(unittest.TestCase):
     def setUp(self):
         super().setUp()
-        self.fn = format_dynamic_annotation_field_value
+        self.fn = functools.partial(format_dynamic_annotation_field_value, 123)
 
     def test_text_empty(self):
         self.assertEqual(self.fn("any", "text", '""'), "")
@@ -164,7 +165,10 @@ class FormatDynamicAnnotationFieldValueTest(unittest.TestCase):
         )
 
     def test_image(self):
-        self.assertEqual(self.fn("any", "image", r'"Image.png"'), "Image.png")
+        self.assertEqual(
+            self.fn("any", "image", r'"Image.png"'),
+            "https://assets.checkmedia.org/uploads/dynamic/123/Image.png",
+        )
 
     def test_image_path(self):
         self.assertEqual(

@@ -4,6 +4,7 @@ import json
 import re
 import sqlite3
 import tempfile
+import urllib.parse
 from pathlib import Path
 from typing import (
     Any,
@@ -362,6 +363,7 @@ SELECT
   END AS "task_or_metadata [dictionarytext]",
   task_yaml_to_label(annotations_tasks.data) AS label,
   format_dynamic_annotation_field_value(
+    dynamic_annotation_fields.annotation_id,
     dynamic_annotation_fields.annotation_type,
     dynamic_annotation_fields.field_type,
     CASE dynamic_annotation_fields.value
@@ -604,12 +606,12 @@ _DYNAMIC_DATETIME_FIELD_VALUE_REGEX = re.compile(
 
 
 _DYNAMIC_JSON_ENCODED_STRING_FIELD_TYPES = frozenset(
-    ["text", "language", "json", "image", "image_path", "id"]
+    ["text", "language", "json", "image_path", "id"]
 )
 
 
 def format_dynamic_annotation_field_value(
-    annotation_type: str, field_type: str, value: str
+    annotation_id: int, annotation_type: str, field_type: str, value: str
 ) -> Optional[str]:
     """Format a dynamic value, very specific to Meedan.
 
@@ -624,6 +626,12 @@ def format_dynamic_annotation_field_value(
             return str(json.loads(value))
         except ValueError:
             return value
+    elif field_type == "image":
+        try:
+            value = str(json.loads(value))  # decode Meedan's encoded JSON
+        except ValueError:
+            return value
+        return f"https://assets.checkmedia.org/uploads/dynamic/{annotation_id}/{urllib.parse.quote(value)}"
     elif field_type == "select":
         try:
             decoded = json.loads(value)
@@ -893,7 +901,7 @@ def _query_tasks(db: sqlite3.Connection) -> pa.Table:
     db.create_function("comment_yaml_to_text", 1, comment_yaml_to_text)
     db.create_function(
         "format_dynamic_annotation_field_value",
-        3,
+        4,
         format_dynamic_annotation_field_value,
     )
     with contextlib.closing(db.cursor()) as cursor:
