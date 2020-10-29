@@ -179,6 +179,12 @@ class FormatDynamicAnnotationFieldValueTest(unittest.TestCase):
             "https://assets.checkmedia.org/uploads/dynamic/123/Image_1.png",
         )
 
+    def test_image_annotation_data_missing(self):
+        self.assertEqual(
+            self.fn("any", "image", r'"Image 1.png"', None),
+            "Image 1.png",
+        )
+
     def test_image_path(self):
         self.assertEqual(
             self.fn("any", "image_path", r'"https://example.org"', ""),
