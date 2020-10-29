@@ -369,7 +369,8 @@ SELECT
     CASE dynamic_annotation_fields.value
       WHEN '' THEN dynamic_annotation_fields.value_json
       ELSE dynamic_annotation_fields.value
-    END
+    END,
+    annotations_responses.data -- for images -- it's encoded differently from dynamic_annotation_fields.value
   ) AS answer,
   users.login AS answered_by,
   annotations_responses.created_at AS answered_at,
@@ -611,7 +612,11 @@ _DYNAMIC_JSON_ENCODED_STRING_FIELD_TYPES = frozenset(
 
 
 def format_dynamic_annotation_field_value(
-    annotation_id: int, annotation_type: str, field_type: str, value: str
+    annotation_id: int,
+    annotation_type: str,
+    field_type: str,
+    value: str,
+    annotation_data: str,
 ) -> Optional[str]:
     """Format a dynamic value, very specific to Meedan.
 
@@ -628,10 +633,10 @@ def format_dynamic_annotation_field_value(
             return value
     elif field_type == "image":
         try:
-            value = str(json.loads(value))  # decode Meedan's encoded JSON
-        except ValueError:
+            filename = json.loads(annotation_data)[0]
+        except (IndexError, ValueError):
             return value
-        return f"https://assets.checkmedia.org/uploads/dynamic/{annotation_id}/{urllib.parse.quote(value)}"
+        return f"https://assets.checkmedia.org/uploads/dynamic/{annotation_id}/{urllib.parse.quote(filename)}"
     elif field_type == "select":
         try:
             decoded = json.loads(value)
@@ -901,7 +906,7 @@ def _query_tasks(db: sqlite3.Connection) -> pa.Table:
     db.create_function("comment_yaml_to_text", 1, comment_yaml_to_text)
     db.create_function(
         "format_dynamic_annotation_field_value",
-        4,
+        5,
         format_dynamic_annotation_field_value,
     )
     with contextlib.closing(db.cursor()) as cursor:
