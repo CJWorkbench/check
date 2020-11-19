@@ -556,7 +556,10 @@ def _query_items(db: sqlite3.Connection) -> pa.Table:
     # duplicated. (Each duplicated Python string costs 50 bytes overhead.)
     status_ids = table["item_status"].dictionary_encode().to_pylist()
     status_labels = pa.array(
-        [(status_id_to_label[id] if id is not None else None) for id in status_ids],
+        [
+            (status_id_to_label.get(id, id) if id is not None else None)
+            for id in status_ids
+        ],
         pa.utf8(),
     ).dictionary_encode()
     table = table.set_column(
