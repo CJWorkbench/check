@@ -876,7 +876,7 @@ def team_settings_yaml_to_status_label_lookup(settings_yaml: str) -> Dict[str, s
         settings, [":media_verification_statuses", "media_verification_statuses"]
     )
     if statuses_outer is None:
-        raise RuntimeError("Missing Team.settings.media_verification_statuses")
+        return {}
     statuses = get_first(statuses_outer, [":statuses", "statuses"])
     if statuses is None:
         raise RuntimeError("Missing Team.settings.media_verification_statuses.statuses")
