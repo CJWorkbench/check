@@ -1,3 +1,9 @@
+2020-11-19.01
+-------------
+
+* Allow querying items even when the team has no verification statuses.
+* Allow querying items whose status IDs are invalid.
+
 2020-10-29.01
 -------------
 
