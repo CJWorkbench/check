@@ -1,3 +1,8 @@
+2020-12-23.01
+-------------
+
+* Items: add `primary_item_relationship_type` column
+
 2020-11-19.01
 -------------
 

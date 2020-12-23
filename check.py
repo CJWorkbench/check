@@ -135,15 +135,34 @@ project_media_merged_comments AS (
   FROM project_media_comments
   GROUP BY project_media_id
 ),
-parent_relationships AS (
+all_relationships AS (
+  -- The data model allows multiple relations between two items. Our output
+  -- doesn't. Rank all these relationships by "priority" and then pick the
+  -- highest-priority ones (see "useful_relationships").
   SELECT
-    relationships.target_id AS child_project_media_id,
-    relationships.source_id AS parent_project_media_id,
-    relationships.created_at,
-    users.login
+    target_id AS child_project_media_id,
+    source_id AS parent_project_media_id,
+    RTRIM(
+        SUBSTR(
+            relationship_type,
+            INSTR(relationship_type, ':target: ') + 9
+        ),
+        CHAR(0xa)
+    ) AS relationship_type,
+    created_at,
+    user_id,
+    RANK() OVER (PARTITION BY target_id, source_id ORDER BY created_at DESC) AS priority
   FROM relationships
-  LEFT JOIN users ON relationships.user_id = users.id
-  WHERE relationships.relationship_type = '---' || CHAR(0xa) || ':source: parent' || CHAR(0xa) || ':target: child' || CHAR(0xa)
+),
+useful_relationships AS (
+  SELECT
+    all_relationships.child_project_media_id,
+    all_relationships.parent_project_media_id,
+    all_relationships.relationship_type,
+    all_relationships.created_at,
+    users.login
+  FROM all_relationships
+  LEFT JOIN users ON all_relationships.user_id = users.id
 ),
 archived_events AS (
   SELECT
@@ -292,9 +311,10 @@ SELECT
   json_extract(media_metadatas.metadata_json, '$.author_name') AS media_author_name,
   json_extract(media_metadatas.metadata_json, '$.author_url') AS media_author_url,
   'https://checkmedia.org/' || teams.slug || '/media/' || project_medias.id AS check_url,
-  parent_relationships.parent_project_media_id AS primary_item_id,
-  parent_relationships.created_at AS primary_item_linked_at,
-  parent_relationships.login AS primary_item_linked_by,
+  useful_relationships.parent_project_media_id AS primary_item_id,
+  useful_relationships.created_at AS primary_item_linked_at,
+  useful_relationships.relationship_type AS primary_item_relationship_type,
+  useful_relationships.login AS primary_item_linked_by,
   first_status_change_events.created_at AS first_item_status_changed_at,
   first_status_change_events.login AS first_item_status_changed_by,
   last_status_change_events.created_at AS last_item_status_changed_at,
@@ -312,7 +332,7 @@ LEFT JOIN project_media_list1s ON project_media_list1s.project_media_id = projec
 LEFT JOIN last_statuses ON last_statuses.project_media_id = project_medias.id
 LEFT JOIN last_analysis_titles ON last_analysis_titles.project_media_id = project_medias.id
 LEFT JOIN last_analysis_contents ON last_analysis_contents.project_media_id = project_medias.id
-LEFT JOIN parent_relationships ON parent_relationships.child_project_media_id = project_medias.id
+LEFT JOIN useful_relationships ON useful_relationships.child_project_media_id = project_medias.id
 LEFT JOIN first_status_change_events ON first_status_change_events.project_media_id = project_medias.id
 LEFT JOIN last_status_change_events ON last_status_change_events.project_media_id = project_medias.id
 LEFT JOIN project_media_languages ON project_media_languages.project_media_id = project_medias.id
