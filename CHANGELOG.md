@@ -1,3 +1,9 @@
+2020-01-07.01
+-------------
+
+* Conversations: fix `outcome` for post-2020-12-23 conversations
+  (which are stored differently).
+
 2020-12-23.01
 -------------
 

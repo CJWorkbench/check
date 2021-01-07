@@ -443,38 +443,81 @@ smooch_users AS (
   GROUP BY
     json_extract(daf.value_json, '$.id'),
     json_extract(daf.value_json, '$.raw.clients[0].platform')
+),
+-- pre-query, to speed up joins
+smooch_data AS (
+  SELECT
+    annotation_id,
+    MAX(
+       json_extract(value_json, '$.source.type')
+       || ':' ||
+       json_extract(value_json, '$.source.originalMessageId')
+    ) AS conversation_id,
+    MAX(json_extract(value_json, '$.project_id')) AS project_id,
+    MAX(json_extract(value_json, '$.authorId')) AS author_id,
+    MAX(json_extract(value_json, '$.text')) AS text
+  FROM dynamic_annotation_fields
+  WHERE field_name = 'smooch_data'
+  GROUP BY annotation_id -- tells query planner, "1 row per annotation_id"
+),
+smooch_resource_ids AS (
+  SELECT annotation_id, MAX(CAST(value AS INT)) AS id
+  FROM dynamic_annotation_fields
+  WHERE field_name = 'smooch_resource_id'
+  GROUP BY annotation_id -- tells query planner "1 row per annotation_id"
+),
+smooch_conversation_outcomes AS (
+  SELECT
+    annotation_id,
+    MAX(CASE value
+      WHEN '"default_requests"' THEN 'submission'
+      WHEN '"resource_requests"' THEN 'resource'
+      WHEN '"timeout_requests"' THEN 'timeout'
+    END) AS outcome
+  FROM dynamic_annotation_fields
+  WHERE field_name = 'smooch_request_type'
+  GROUP BY annotation_id -- tells query planner "1 row per annotation_id"
 )
 SELECT
-  json_extract(daf.value_json, '$.source.type')
-    || ':'
-    || json_extract(daf.value_json, '$.source.originalMessageId')
-    AS "conversation_id [text]",
+  smooch_data.conversation_id AS "conversation_id [text]",
   smooch_users.platform || ':' || smooch_users.user_id_on_platform AS user,
   annotations.created_at AS created_at,
-  CASE
-    WHEN annotations.annotated_type = 'BotResource' THEN 'resource'
-    WHEN annotations.annotated_type = 'ProjectMedia' THEN CASE
-      WHEN json_extract(daf.value_json, '$.project_id') IS NOT NULL THEN 'submission'
-      ELSE 'resource' -- old-style resource
+  CASE smooch_conversation_outcomes.outcome -- New field, as of 2020-12-23
+    WHEN 'submission' THEN 'submission'
+    WHEN 'resource' THEN 'resource'
+    WHEN 'timeout' THEN NULL
+    ELSE CASE -- Fallback, pre-2020-12-23
+      WHEN annotations.annotated_type = 'BotResource' THEN 'resource'
+      WHEN annotations.annotated_type = 'ProjectMedia' THEN CASE
+        WHEN smooch_data.project_id IS NOT NULL THEN 'submission'
+        ELSE 'resource' -- old-style resource
+      END
+      ELSE NULL
     END
-    ELSE NULL
   END AS "outcome [dictionarytext]",
   CASE
     WHEN annotations.annotated_type = 'ProjectMedia' THEN annotations.annotated_id
     ELSE NULL
   END AS item_id,
-  CASE
-    WHEN annotations.annotated_type = 'BotResource' THEN bot_resources.title
-    ELSE NULL
-  END AS resource_title,
-  json_extract(daf.value_json, '$.text') AS user_messages, -- delimited by \u2063
+  COALESCE(bot_resources.title, bot_resources_deprecated_2020_12_23.title) AS resource_title,
+  smooch_data.text AS user_messages, -- delimited by \u2063
   smooch_users.slack_channel_url AS slack_channel_url
-FROM dynamic_annotation_fields daf
-INNER JOIN annotations ON annotations.id = daf.annotation_id
-LEFT JOIN smooch_users ON smooch_users.id = json_extract(daf.value_json, '$.authorId')
-LEFT JOIN bot_resources ON annotations.annotated_type = 'BotResource' AND annotations.annotated_id = bot_resources.id
-WHERE daf.field_name = 'smooch_data'
-ORDER BY daf.created_at DESC, daf.id DESC
+FROM annotations
+INNER JOIN smooch_data
+        ON smooch_data.annotation_id = annotations.id
+LEFT JOIN smooch_users
+       ON smooch_users.id = smooch_data.author_id
+LEFT JOIN smooch_resource_ids
+       ON smooch_resource_ids.annotation_id = annotations.id
+LEFT JOIN smooch_conversation_outcomes
+       ON smooch_conversation_outcomes.annotation_id = annotations.id
+LEFT JOIN bot_resources bot_resources_deprecated_2020_12_23
+       ON annotations.annotated_type = 'BotResource'
+      AND annotations.annotated_id = bot_resources_deprecated_2020_12_23.id
+LEFT JOIN bot_resources
+       ON bot_resources.id = smooch_resource_ids.id
+WHERE annotation_type = 'smooch'
+ORDER BY annotations.created_at DESC, annotations.id DESC
 """
 
 
