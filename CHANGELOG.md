@@ -3,6 +3,7 @@
 
 * Conversations: fix `outcome` for post-2020-12-23 conversations
   (which are stored differently).
+* Conversations: add `billable_conversation_id`, to help evaluate costs
 
 2020-12-23.01
 -------------

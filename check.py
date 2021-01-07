@@ -460,6 +460,12 @@ smooch_data AS (
   WHERE field_name = 'smooch_data'
   GROUP BY annotation_id -- tells query planner, "1 row per annotation_id"
 ),
+smooch_conversation_ids AS (
+  SELECT annotation_id, MAX(REPLACE(value, '"', '')) AS conversation_id
+  FROM dynamic_annotation_fields
+  WHERE field_name = 'smooch_conversation_id'
+  GROUP BY annotation_id -- tells query planner "1 row per annotation_id"
+),
 smooch_resource_ids AS (
   SELECT annotation_id, MAX(CAST(value AS INT)) AS id
   FROM dynamic_annotation_fields
@@ -501,7 +507,8 @@ SELECT
   END AS item_id,
   COALESCE(bot_resources.title, bot_resources_deprecated_2020_12_23.title) AS resource_title,
   smooch_data.text AS user_messages, -- delimited by \u2063
-  smooch_users.slack_channel_url AS slack_channel_url
+  smooch_users.slack_channel_url AS slack_channel_url,
+  smooch_conversation_ids.conversation_id AS "billable_conversation_id [text]"
 FROM annotations
 INNER JOIN smooch_data
         ON smooch_data.annotation_id = annotations.id
@@ -509,6 +516,8 @@ LEFT JOIN smooch_users
        ON smooch_users.id = smooch_data.author_id
 LEFT JOIN smooch_resource_ids
        ON smooch_resource_ids.annotation_id = annotations.id
+LEFT JOIN smooch_conversation_ids
+       ON smooch_conversation_ids.annotation_id = annotations.id
 LEFT JOIN smooch_conversation_outcomes
        ON smooch_conversation_outcomes.annotation_id = annotations.id
 LEFT JOIN bot_resources bot_resources_deprecated_2020_12_23
