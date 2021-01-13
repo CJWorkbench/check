@@ -3,6 +3,8 @@
 
 * Items: enforce at-most-one primary item, and filter for only
   confirmed-sibling and suggested-sibling relationships.
+* Items: add `facebook_share_count`, `facebook_comment_count`,
+  `facebook_reaction_count`.
 
 2021-01-07.01
 -------------

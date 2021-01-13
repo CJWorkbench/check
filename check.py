@@ -295,6 +295,20 @@ last_reports AS (
     status
   FROM reports
   WHERE rn_desc = 1
+),
+facebook_metrics AS (
+  SELECT
+    annotations.annotated_id AS project_media_id,
+    MAX(json_extract(daf.value_json, '$.facebook.share_count')) AS share_count,
+    MAX(json_extract(daf.value_json, '$.facebook.comment_count')) AS comment_count,
+    MAX(json_extract(daf.value_json, '$.facebook.reaction_count')) AS reaction_count
+  FROM dynamic_annotation_fields daf
+  INNER JOIN annotations
+          ON daf.annotation_id = annotations.id
+         AND annotations.annotation_type = 'metrics'
+         AND annotations.annotated_type = 'ProjectMedia'
+  WHERE daf.field_name = 'metrics_data'
+  GROUP BY annotations.annotated_id  -- tells query planner, "1 row per annotation_id"
 )
 SELECT
   project_medias.id AS item_id,
@@ -333,7 +347,10 @@ SELECT
   first_publish_events.login AS item_report_first_published_by,
   project_medias.archived AS "item_archived [integer]",
   first_archived_events.created_at AS item_first_archived_at,
-  first_archived_events.login AS item_first_archived_by
+  first_archived_events.login AS item_first_archived_by,
+  facebook_metrics.share_count AS "facebook_share_count [integer]",
+  facebook_metrics.comment_count AS "facebook_comment_count [integer]",
+  facebook_metrics.reaction_count AS "facebook_reaction_count [integer]"
 FROM project_medias
 INNER JOIN medias ON project_medias.media_id = medias.id
 INNER JOIN teams ON teams.id = project_medias.team_id
@@ -352,6 +369,7 @@ LEFT JOIN media_metadatas ON media_metadatas.media_id = medias.id
 LEFT JOIN last_reports ON last_reports.project_media_id = project_medias.id
 LEFT JOIN first_publish_events ON first_publish_events.project_media_id = project_medias.id
 LEFT JOIN first_archived_events ON first_archived_events.project_media_id = project_medias.id
+LEFT JOIN facebook_metrics ON facebook_metrics.project_media_id = project_medias.id
 LEFT JOIN users project_media_creators ON project_media_creators.id = project_medias.user_id
 ORDER BY project_medias.id DESC
 """
