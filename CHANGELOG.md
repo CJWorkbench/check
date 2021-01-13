@@ -1,4 +1,10 @@
-2020-01-07.01
+2021-01-13.01
+-------------
+
+* Items: enforce at-most-one primary item, and filter for only
+  confirmed-sibling and suggested-sibling relationships.
+
+2021-01-07.01
 -------------
 
 * Conversations: fix `outcome` for post-2020-12-23 conversations

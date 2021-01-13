@@ -135,10 +135,7 @@ project_media_merged_comments AS (
   FROM project_media_comments
   GROUP BY project_media_id
 ),
-all_relationships AS (
-  -- The data model allows multiple relations between two items. Our output
-  -- doesn't. Rank all these relationships by "priority" and then pick the
-  -- highest-priority ones (see "useful_relationships").
+all_relationships_including_parent_child AS (
   SELECT
     target_id AS child_project_media_id,
     source_id AS parent_project_media_id,
@@ -150,9 +147,20 @@ all_relationships AS (
         CHAR(0xa)
     ) AS relationship_type,
     created_at,
-    user_id,
-    RANK() OVER (PARTITION BY target_id, source_id ORDER BY created_at DESC) AS priority
+    user_id
   FROM relationships
+),
+all_relationships AS (
+  -- The data model allows multiple relations between two items. Our output
+  -- doesn't. Rank all these relationships by "priority" and then pick the
+  -- highest-priority ones (see "useful_relationships").
+  SELECT
+    *,
+    RANK() OVER (PARTITION BY child_project_media_id ORDER BY created_at DESC) AS priority
+  FROM all_relationships_including_parent_child
+  -- We don't care about "parent/child" relationships. Only the
+  -- "confirmed_sibling" and "suggested_sibling" relationships.
+  WHERE relationship_type IN ('confirmed_sibling', 'suggested_sibling')
 ),
 useful_relationships AS (
   SELECT
@@ -163,6 +171,7 @@ useful_relationships AS (
     users.login
   FROM all_relationships
   LEFT JOIN users ON all_relationships.user_id = users.id
+  WHERE all_relationships.priority = 1
 ),
 archived_events AS (
   SELECT
