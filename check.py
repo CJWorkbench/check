@@ -147,6 +147,7 @@ all_relationships_including_parent_child AS (
         CHAR(0xa)
     ) AS relationship_type,
     created_at,
+    updated_at,
     user_id
   FROM relationships
 ),
@@ -168,6 +169,7 @@ useful_relationships AS (
     all_relationships.parent_project_media_id,
     all_relationships.relationship_type,
     all_relationships.created_at,
+    all_relationships.updated_at,
     users.login
   FROM all_relationships
   LEFT JOIN users ON all_relationships.user_id = users.id
@@ -336,6 +338,7 @@ SELECT
   'https://checkmedia.org/' || teams.slug || '/media/' || project_medias.id AS check_url,
   useful_relationships.parent_project_media_id AS primary_item_id,
   useful_relationships.created_at AS primary_item_linked_at,
+  useful_relationships.updated_at AS primary_item_link_updated_at,
   useful_relationships.relationship_type AS primary_item_relationship_type,
   useful_relationships.login AS primary_item_linked_by,
   first_status_change_events.created_at AS first_item_status_changed_at,

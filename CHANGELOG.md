@@ -1,6 +1,15 @@
 2021-01-13.01
 -------------
 
+* Items: add `primary_item_link_updated_at`, to (temporarily) distinguish
+  between machine-confirmed and human-confirmed.
+  confirmed-sibling and suggested-sibling relationships.
+* Items: add `facebook_share_count`, `facebook_comment_count`,
+  `facebook_reaction_count`.
+
+2021-01-13.01
+-------------
+
 * Items: enforce at-most-one primary item, and filter for only
   confirmed-sibling and suggested-sibling relationships.
 * Items: add `facebook_share_count`, `facebook_comment_count`,
