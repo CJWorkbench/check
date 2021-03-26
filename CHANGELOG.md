@@ -1,3 +1,8 @@
+2021-03-26.01
+-------------
+
+* Conversations: add `conversation_language` column.
+
 2021-01-13.01
 -------------
 

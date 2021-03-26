@@ -485,6 +485,7 @@ smooch_data AS (
     ) AS conversation_id,
     MAX(json_extract(value_json, '$.project_id')) AS project_id,
     MAX(json_extract(value_json, '$.authorId')) AS author_id,
+    MAX(json_extract(value_json, '$.language')) AS language,
     MAX(json_extract(value_json, '$.text')) AS text
   FROM dynamic_annotation_fields
   WHERE field_name = 'smooch_data'
@@ -537,6 +538,7 @@ SELECT
   END AS item_id,
   COALESCE(bot_resources.title, bot_resources_deprecated_2020_12_23.title) AS resource_title,
   smooch_data.text AS user_messages, -- delimited by \u2063
+  smooch_data.language AS "conversation_language [text]",
   smooch_users.slack_channel_url AS slack_channel_url,
   smooch_conversation_ids.conversation_id AS "billable_conversation_id [text]"
 FROM annotations
