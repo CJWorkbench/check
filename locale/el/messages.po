@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PROJECT VERSION\n"
 "Report-Msgid-Bugs-To: EMAIL@ADDRESS\n"
-"POT-Creation-Date: 2021-03-26 19:13+0000\n"
+"POT-Creation-Date: 2021-05-07 15:24+0000\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language: el\n"
@@ -17,7 +17,7 @@ msgstr ""
 "MIME-Version: 1.0\n"
 "Content-Type: text/plain; charset=utf-8\n"
 "Content-Transfer-Encoding: 8bit\n"
-"Generated-By: Babel 2.9.0\n"
+"Generated-By: Babel 2.9.1\n"
 
 msgid "_spec.name"
 msgstr ""
@@ -37,11 +37,11 @@ msgstr ""
 msgid "_spec.parameters.query_slug.options.items.label"
 msgstr ""
 
-#: check.py:1072
+#: check.py:1087
 msgid "error.queryError"
 msgstr ""
 
-#: check.py:1083
+#: check.py:1103
 msgid "error.invalidFile"
 msgstr ""
 

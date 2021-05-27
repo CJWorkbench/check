@@ -23,6 +23,8 @@ import lz4.frame
 import pyarrow as pa
 import pyarrow.ipc
 from cjwmodule import i18n
+from cjwmodule.arrow.types import ArrowRenderResult
+from cjwmodule.types import RenderError
 
 # Sqlite3 doesn't have a "recordset" concept, and it won't expose the decltypes
 # of a recordset. It will only expose the column names. That isn't good enough:
@@ -88,14 +90,6 @@ last_analysis_contents AS (
   INNER JOIN dynamic_annotation_fields daf
           ON daf.annotation_id = last_statuses.annotation_id
          AND daf.field_name = 'content'
-),
-project_media_list1s AS (
-  SELECT
-    project_media_projects.project_media_id,
-    MIN(projects.title) AS list1
-  FROM project_media_projects
-  INNER JOIN projects ON project_media_projects.project_id = projects.id
-  GROUP BY project_media_projects.project_media_id
 ),
 project_media_tags AS (
   SELECT
@@ -320,7 +314,7 @@ SELECT
   CASE last_statuses.login WHEN 'smooch' THEN NULL ELSE last_statuses.login END AS item_status_by,
   last_analysis_titles.title AS item_analysis_title,
   last_analysis_contents.content AS item_analysis_content,
-  project_media_list1s.list1 AS "item_list1 [dictionarytext]",
+  projects.title AS "folder [dictionarytext]",
   project_media_tag_text_strings.text AS item_tags,
   COALESCE(
     json_extract(project_media_metadatas.metadata_json, '$.title'),
@@ -357,7 +351,7 @@ SELECT
 FROM project_medias
 INNER JOIN medias ON project_medias.media_id = medias.id
 INNER JOIN teams ON teams.id = project_medias.team_id
-LEFT JOIN project_media_list1s ON project_media_list1s.project_media_id = project_medias.id
+LEFT JOIN projects ON projects.id = project_medias.project_id
 LEFT JOIN last_statuses ON last_statuses.project_media_id = project_medias.id
 LEFT JOIN last_analysis_titles ON last_analysis_titles.project_media_id = project_medias.id
 LEFT JOIN last_analysis_contents ON last_analysis_contents.project_media_id = project_medias.id
@@ -568,25 +562,33 @@ def validate_database(db: sqlite3.Connection) -> None:
 
 
 class IntegerType:
+    field_metadata = dict(format="{:,d}")
+
     def list_to_pyarrow(self, values: List[Optional[int]]) -> pa.Array:
         return pa.array(values, pa.int32())  # TODO dynamic width?
 
 
 class IdType(IntegerType):
-    pass
+    field_metadata = dict(format="{:d}")
 
 
 class TextType:
+    field_metadata = None
+
     def list_to_pyarrow(self, values: List[Optional[str]]) -> pa.Array:
         return pa.array(values, pa.utf8())
 
 
 class DictionaryTextType(TextType):
+    field_metadata = None
+
     def list_to_pyarrow(self, values: List[Optional[str]]) -> pa.Array:
         return pa.array(values, pa.utf8()).dictionary_encode()
 
 
 class TimestampType:
+    field_metadata = None
+
     def list_to_pyarrow(self, values: List[Optional[str]]) -> pa.Array:
         def parse(v: Optional[str]) -> Optional[datetime.datetime]:
             if v is None:
@@ -599,7 +601,9 @@ class TimestampType:
         return pa.array([parse(v) for v in values], pa.timestamp("ns"))
 
 
-QueryColumnType = Union[IdType, IntegerType, TextType, TimestampType]
+QueryColumnType = Union[
+    IdType, IntegerType, TextType, DictionaryTextType, TimestampType
+]
 
 
 class QueryColumn(NamedTuple):
@@ -634,18 +638,29 @@ def _column_name_to_query_column(name: str) -> QueryColumn:
 
 def _rows_to_column(
     rows: list, column_name: str, column_index: int
-) -> Tuple[str, pa.Array]:
+) -> Tuple[pa.Field, pa.Array]:
     query_column = _column_name_to_query_column(column_name)
     values = list(r[column_index] for r in rows)
-    return query_column.name, query_column.query_column_type.list_to_pyarrow(values)
+    array = query_column.query_column_type.list_to_pyarrow(values)
+    field = pa.field(
+        query_column.name,
+        array.type,
+        metadata=query_column.query_column_type.field_metadata,
+    )
+    return field, query_column.query_column_type.list_to_pyarrow(values)
 
 
 def _cursor_to_table(cursor: sqlite3.Cursor) -> pa.Table:
     colnames = (t[0] for t in cursor.description)
     rows = cursor.fetchall()
-    return pa.table(
-        dict([_rows_to_column(rows, colname, i) for i, colname in enumerate(colnames)])
-    )
+    fields = []
+    arrays = []
+    for i, colname in enumerate(colnames):
+        field, array = _rows_to_column(rows, colname, i)
+        fields.append(field)
+        arrays.append(array)
+
+    return pa.table(arrays, pa.schema(fields))
 
 
 def _query_items(db: sqlite3.Connection) -> pa.Table:
@@ -1072,23 +1087,27 @@ def _build_arrow_table(db_lz4_path: Path, query_slug: str) -> pa.Table:
             return None, [i18n.trans("error.queryError", "Please upload a newer file.")]
 
 
-def render(arrow_table, params, output_path, **kwargs):
+def render_arrow_v1(arrow_table, params, *, uploaded_files, **kwargs):
     if params["file"] is None:
-        return []
+        return ArrowRenderResult(pa.table({}))
+
+    path = uploaded_files[params["file"]].path
 
     try:
-        arrow_table, errors = _build_arrow_table(params["file"], params["query_slug"])
-    except (InvalidLz4File, sqlite3.DatabaseError) as err:
-        return [
-            i18n.trans("error.invalidFile", "Please upload a valid .sqlite3.lz4 file.")
-        ]
+        arrow_table, errors = _build_arrow_table(path, params["query_slug"])
+    except (InvalidLz4File, sqlite3.DatabaseError):
+        return ArrowRenderResult(
+            pa.table({}),
+            [
+                RenderError(
+                    i18n.trans(
+                        "error.invalidFile", "Please upload a valid .sqlite3.lz4 file."
+                    )
+                )
+            ],
+        )
 
-    if arrow_table is not None:
-        with pyarrow.RecordBatchFileWriter(
-            str(output_path), arrow_table.schema
-        ) as writer:
-            writer.write_table(arrow_table)
-    return errors
+    return ArrowRenderResult(arrow_table, errors=errors)
 
 
 def _migrate_params_v0_to_v1(params):

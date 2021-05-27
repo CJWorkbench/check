@@ -1,3 +1,10 @@
+2021-05-27.01
+-------------
+
+* Items: rename `item_list1` to `folder`.
+* Items: update query. item-list relation is now many-to-one, not many-to-many.
+* ID columns: format without commas (thanks to Workbench's new Arrow API v1).
+
 2021-03-26.01
 -------------
 
