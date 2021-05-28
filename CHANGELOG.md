@@ -1,3 +1,8 @@
+2021-05-28.01
+-------------
+
+* Items: add `primary_item_link_confirmed_by`
+
 2021-05-27.01
 -------------
 

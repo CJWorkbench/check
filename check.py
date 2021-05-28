@@ -142,7 +142,8 @@ all_relationships_including_parent_child AS (
     ) AS relationship_type,
     created_at,
     updated_at,
-    user_id
+    user_id,
+    confirmed_by
   FROM relationships
 ),
 all_relationships AS (
@@ -164,9 +165,11 @@ useful_relationships AS (
     all_relationships.relationship_type,
     all_relationships.created_at,
     all_relationships.updated_at,
-    users.login
+    created_by_users.login AS created_by,
+    confirmed_by_users.login AS confirmed_by
   FROM all_relationships
-  LEFT JOIN users ON all_relationships.user_id = users.id
+  LEFT JOIN users created_by_users ON all_relationships.user_id = created_by_users.id
+  LEFT JOIN users confirmed_by_users ON all_relationships.confirmed_by = confirmed_by_users.id
   WHERE all_relationships.priority = 1
 ),
 archived_events AS (
@@ -309,7 +312,7 @@ facebook_metrics AS (
 SELECT
   project_medias.id AS item_id,
   project_medias.created_at AS item_created_at,
-  project_media_creators.login AS item_created_by,
+  project_media_creators.login AS "item_created_by [dictionarytext]",
   last_statuses.status AS item_status, -- IDs, decoded in Python later
   CASE last_statuses.login WHEN 'smooch' THEN NULL ELSE last_statuses.login END AS item_status_by,
   last_analysis_titles.title AS item_analysis_title,
@@ -333,18 +336,19 @@ SELECT
   useful_relationships.parent_project_media_id AS primary_item_id,
   useful_relationships.created_at AS primary_item_linked_at,
   useful_relationships.updated_at AS primary_item_link_updated_at,
-  useful_relationships.relationship_type AS primary_item_relationship_type,
-  useful_relationships.login AS primary_item_linked_by,
+  useful_relationships.relationship_type AS "primary_item_relationship_type [dictionarytext]",
+  useful_relationships.created_by AS "primary_item_linked_by [dictionarytext]",
+  useful_relationships.confirmed_by AS "primary_item_link_confirmed_by [dictionarytext]",
   first_status_change_events.created_at AS first_item_status_changed_at,
-  first_status_change_events.login AS first_item_status_changed_by,
+  first_status_change_events.login AS "first_item_status_changed_by [dictionarytext]",
   last_status_change_events.created_at AS last_item_status_changed_at,
-  last_status_change_events.login AS last_item_status_changed_by,
+  last_status_change_events.login AS "last_item_status_changed_by [dictionarytext]",
   last_reports.status AS "item_report_status [dictionarytext]",
   first_publish_events.created_at AS item_report_first_published_at,
-  first_publish_events.login AS item_report_first_published_by,
+  first_publish_events.login AS "item_report_first_published_by [dictionarytext]",
   project_medias.archived AS "item_archived [integer]",
   first_archived_events.created_at AS item_first_archived_at,
-  first_archived_events.login AS item_first_archived_by,
+  first_archived_events.login AS "item_first_archived_by [dictionarytext]",
   facebook_metrics.share_count AS "facebook_share_count [integer]",
   facebook_metrics.comment_count AS "facebook_comment_count [integer]",
   facebook_metrics.reaction_count AS "facebook_reaction_count [integer]"
